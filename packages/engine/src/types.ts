@@ -24,7 +24,7 @@ export type HexId = number;
 export type VertexId = number;
 export type EdgeId = number;
 
-/** 席番号（手番順） */
-export type Seat = 0 | 1 | 2 | 3;
+/** 席番号（0 始まりの手番順）。人数は GameConfig.playerCount で決まる */
+export type Seat = number;
 
 export type ResourceCounts = Record<Resource, number>;

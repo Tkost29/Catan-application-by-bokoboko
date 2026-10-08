@@ -10,6 +10,9 @@ export interface GameConfig {
   /** 設定の形式のバージョン（保存データのマイグレーション用） */
   readonly schemaVersion: 1;
 
+  /** プレイヤー人数（通常版は4。足りない席はルーム側でAIが埋める） */
+  readonly playerCount: number;
+
   // --- 盤面 ---
   /** 盤面の半径（通常版は2 = 19ヘックス） */
   readonly boardRadius: number;
@@ -52,6 +55,7 @@ export interface GameConfig {
 
 export const DEFAULT_CONFIG: GameConfig = {
   schemaVersion: 1,
+  playerCount: 4,
   boardRadius: 2,
   terrainCounts: { forest: 4, hills: 3, pasture: 4, fields: 4, mountains: 3, desert: 1 },
   numberTokens: [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12],
