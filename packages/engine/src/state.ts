@@ -12,7 +12,10 @@ export interface Building {
 export interface PlayerState {
   readonly seat: Seat;
   readonly hand: ResourceCounts;
+  /** 手元の発展カード（未使用）。boughtTurn と同じ手番には使えない */
   readonly devCards: readonly { readonly card: DevCard; readonly boughtTurn: number }[];
+  /** 使用済みの発展カード（全員に公開） */
+  readonly playedDevCards: readonly DevCard[];
   readonly playedKnights: number;
   readonly piecesLeft: { readonly road: number; readonly settlement: number; readonly city: number };
 }
@@ -25,7 +28,12 @@ export interface PlayerState {
  *   → 7 以外: 生産して main（交易・建設）
  *   → 7: discard（手札が多い人が同時に捨てる）→ moveRobber（盗賊移動・略奪）→ main
  *   → main で endTurn すると次の席の preRoll。勝利点が目標に届いたら gameOver
+ *
+ * 発展カードは preRoll と main で使える（1手番1枚）。
+ *   騎士 → moveRobber、街道建設 → roadBuilding を経て、使った時点のフェーズ（returnTo）に戻る。
  */
+export type ReturnPhase = 'preRoll' | 'main';
+
 export type Phase =
   | {
       readonly kind: 'setup';
@@ -40,7 +48,13 @@ export type Phase =
       /** 席ごとの「まだ捨てなければならない枚数」（index = Seat、0 なら済み） */
       readonly remaining: readonly number[];
     }
-  | { readonly kind: 'moveRobber' }
+  | { readonly kind: 'moveRobber'; readonly returnTo: ReturnPhase }
+  | {
+      readonly kind: 'roadBuilding';
+      /** あと何本置けるか */
+      readonly remaining: number;
+      readonly returnTo: ReturnPhase;
+    }
   | { readonly kind: 'main' }
   | { readonly kind: 'gameOver' };
 
@@ -64,6 +78,8 @@ export interface GameState {
   /** 通常手番の通し番号。初期配置中は 0 */
   readonly turn: number;
   readonly currentSeat: Seat;
+  /** この手番ですでに発展カードを使ったか（1手番1枚まで） */
+  readonly devCardPlayedThisTurn: boolean;
   /** 直近のダイスの目（UI 表示用）。まだ振っていなければ null */
   readonly lastRoll: readonly [number, number] | null;
   /** ダイスなどゲーム中に使う乱数の状態（rng.ts の nextRandom で進める） */

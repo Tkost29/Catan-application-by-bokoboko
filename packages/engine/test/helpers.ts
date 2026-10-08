@@ -9,6 +9,7 @@ import {
   RESOURCES,
   STANDARD_TOPOLOGY as T,
   type Action,
+  type DevCard,
   type EdgeId,
   type GameState,
   type ResourceCounts,
@@ -51,10 +52,20 @@ export function checkInvariants(state: GameState): void {
   expect(state.robberHex).toBeGreaterThanOrEqual(0);
   expect(state.robberHex).toBeLessThan(state.board.terrains.length);
 
-  // 発展カードの総数は保存される
+  // 発展カードの総数は保存される（山札＋手元＋使用済み）
   const devTotal = Object.values(config.devCardCounts).reduce((a, b) => a + b, 0);
-  const held = state.players.reduce((s, p) => s + p.devCards.length, 0);
-  expect(state.devDeck.length + held).toBeLessThanOrEqual(devTotal);
+  const held = state.players.reduce((s, p) => s + p.devCards.length + p.playedDevCards.length, 0);
+  expect(state.devDeck.length + held).toBe(devTotal);
+
+  // 騎士の使用数と使用済みカードが一致、最大騎士力の保持者は規定数以上で最多
+  for (const p of state.players) {
+    expect(p.playedKnights).toBe(p.playedDevCards.filter((c) => c === 'knight').length);
+  }
+  if (state.largestArmy !== null) {
+    const holder = state.players[state.largestArmy]!.playedKnights;
+    expect(holder).toBeGreaterThanOrEqual(config.largestArmyMinKnights);
+    for (const p of state.players) expect(p.playedKnights).toBeLessThanOrEqual(holder);
+  }
 }
 
 export type Policy = (legal: Action[], rng: ReturnType<typeof createRng>) => Action;
@@ -72,9 +83,11 @@ export const builderPolicy: Policy = (legal, rng) => {
     return xs.length > 0 ? xs[rng.int(xs.length)] : undefined;
   };
   return (
+    (rng.next() < 0.5 ? pick(['playKnight', 'playRoadBuilding', 'playYearOfPlenty', 'playMonopoly']) : undefined) ??
     pick(['buildCity']) ??
     pick(['buildSettlement']) ??
     (rng.next() < 0.5 ? pick(['buildRoad']) : undefined) ??
+    (rng.next() < 0.4 ? pick(['buyDevCard']) : undefined) ??
     (rng.next() < 0.3 ? pick(['bankTrade']) : undefined) ??
     pick(['endTurn']) ??
     legal[rng.int(legal.length)]!
@@ -128,6 +141,23 @@ export function emptyBoardMain(seed: string, hands: Partial<Record<Seat, Partial
     return { ...p, hand };
   });
   return { ...g, bank, players, phase: { kind: 'main' }, turn: 1, currentSeat: 0 };
+}
+
+/** 山札から指定のカードを抜いて手元に渡す（カードの総数を保つ）。既定では前の手番に買った扱い */
+export function giveDevCards(state: GameState, seat: Seat, cards: DevCard[], boughtTurn = state.turn - 1): GameState {
+  const deck = state.devDeck.slice();
+  for (const c of cards) {
+    const i = deck.indexOf(c);
+    if (i < 0) throw new Error(`no ${c} left in deck`);
+    deck.splice(i, 1);
+  }
+  return {
+    ...state,
+    devDeck: deck,
+    players: state.players.map((p) =>
+      p.seat === seat ? { ...p, devCards: [...p.devCards, ...cards.map((card) => ({ card, boughtTurn }))] } : p,
+    ),
+  };
 }
 
 /** 状態に建物と道を直接置く（駒の残り数も合わせる） */

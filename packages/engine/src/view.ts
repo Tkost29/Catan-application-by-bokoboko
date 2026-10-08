@@ -6,6 +6,8 @@ export interface OpponentView {
   readonly seat: Seat;
   readonly handCount: number;
   readonly devCardCount: number;
+  /** 使用済みの発展カード（公開情報） */
+  readonly playedDevCards: PlayerState['playedDevCards'];
   readonly playedKnights: number;
   readonly piecesLeft: PlayerState['piecesLeft'];
 }
@@ -28,6 +30,7 @@ export interface PlayerView {
   readonly phase: GameState['phase'];
   readonly turn: number;
   readonly currentSeat: Seat;
+  readonly devCardPlayedThisTurn: boolean;
   readonly lastRoll: GameState['lastRoll'];
   readonly winner: Seat | null;
   readonly me: PlayerState;
@@ -53,6 +56,7 @@ export function toPlayerView(state: GameState, seat: Seat): PlayerView {
     phase: state.phase,
     turn: state.turn,
     currentSeat: state.currentSeat,
+    devCardPlayedThisTurn: state.devCardPlayedThisTurn,
     lastRoll: state.lastRoll,
     winner: state.winner,
     me,
@@ -62,6 +66,7 @@ export function toPlayerView(state: GameState, seat: Seat): PlayerView {
         seat: p.seat,
         handCount: sumCounts(p.hand),
         devCardCount: p.devCards.length,
+        playedDevCards: p.playedDevCards,
         playedKnights: p.playedKnights,
         piecesLeft: p.piecesLeft,
       })),

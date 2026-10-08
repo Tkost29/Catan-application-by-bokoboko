@@ -168,6 +168,7 @@ export function applyEndTurn(state: GameState): GameState {
     ...state,
     currentSeat: (state.currentSeat + 1) % state.config.playerCount,
     turn: state.turn + 1,
+    devCardPlayedThisTurn: false,
     phase: { kind: 'preRoll' },
   };
 }

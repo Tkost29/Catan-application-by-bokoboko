@@ -26,7 +26,7 @@ export function applyRollDice(state: GameState): GameState {
   });
   return remaining.some((n) => n > 0)
     ? { ...rolled, phase: { kind: 'discard', remaining } }
-    : { ...rolled, phase: { kind: 'moveRobber' } };
+    : { ...rolled, phase: { kind: 'moveRobber', returnTo: 'main' } };
 }
 
 /**
@@ -117,7 +117,7 @@ export function applyDiscard(state: GameState, phase: DiscardPhase, action: Acti
   const paid = payToBank(state, action.seat, action.resources);
   const remaining = phase.remaining.map((n, seat) => (seat === action.seat ? 0 : n));
   return remaining.every((n) => n === 0)
-    ? { ...paid, phase: { kind: 'moveRobber' } }
+    ? { ...paid, phase: { kind: 'moveRobber', returnTo: 'main' } }
     : { ...paid, phase: { kind: 'discard', remaining } };
 }
 
@@ -156,7 +156,9 @@ export function moveRobberCandidates(state: GameState): ActionOf<'moveRobber'>[]
 }
 
 export function applyMoveRobber(state: GameState, action: ActionOf<'moveRobber'>): GameState {
-  let next: GameState = { ...state, robberHex: action.hex, phase: { kind: 'main' } };
+  // 7 の目なら main へ、サイコロ前に騎士を使ったなら preRoll へ戻る
+  const returnTo = state.phase.kind === 'moveRobber' ? state.phase.returnTo : 'main';
+  let next: GameState = { ...state, robberHex: action.hex, phase: { kind: returnTo } };
   if (action.victim === null) return next;
 
   const victim = action.victim;

@@ -20,6 +20,15 @@ import {
   validateDiscard,
   validateMoveRobber,
 } from './rules/dice.js';
+import {
+  applyBuyDevCard,
+  applyFreeRoad,
+  applyPlayDevCard,
+  devCardCandidates,
+  validateBuyDevCard,
+  validateFreeRoad,
+  validatePlayDevCard,
+} from './rules/devcards.js';
 import { checkWinner } from './rules/score.js';
 import { applySetupAction, setupCandidates, validateSetupAction } from './rules/setup.js';
 import type { GameState, Phase } from './state.js';
@@ -31,12 +40,14 @@ import type { Seat } from './types.js';
  */
 
 /** フェーズごとに受け付けるアクションの種類 */
+const PLAY_DEV_CARD: readonly ActionType[] = ['playKnight', 'playRoadBuilding', 'playYearOfPlenty', 'playMonopoly'];
 const ALLOWED: Readonly<Record<Phase['kind'], readonly ActionType[]>> = {
   setup: ['placeSettlement', 'placeRoad'],
-  preRoll: ['rollDice'],
+  preRoll: ['rollDice', ...PLAY_DEV_CARD],
   discard: ['discard'],
   moveRobber: ['moveRobber'],
-  main: ['buildRoad', 'buildSettlement', 'buildCity', 'bankTrade', 'endTurn'],
+  roadBuilding: ['buildRoad'],
+  main: ['buildRoad', 'buildSettlement', 'buildCity', 'bankTrade', 'buyDevCard', ...PLAY_DEV_CARD, 'endTurn'],
   gameOver: [],
 };
 
@@ -60,7 +71,8 @@ export function validateAction(state: GameState, action: Action): string | null 
     case 'moveRobber':
       return validateMoveRobber(state, action);
     case 'buildRoad':
-      return validateBuildRoad(state, action);
+      // 街道建設カードの道は無料
+      return phase.kind === 'roadBuilding' ? validateFreeRoad(state, action) : validateBuildRoad(state, action);
     case 'buildSettlement':
       return validateBuildSettlement(state, action);
     case 'buildCity':
@@ -69,6 +81,13 @@ export function validateAction(state: GameState, action: Action): string | null 
       return validateBankTrade(state, action);
     case 'endTurn':
       return null;
+    case 'buyDevCard':
+      return validateBuyDevCard(state, action);
+    case 'playKnight':
+    case 'playRoadBuilding':
+    case 'playYearOfPlenty':
+    case 'playMonopoly':
+      return validatePlayDevCard(state, action);
   }
 }
 
@@ -84,11 +103,13 @@ export function legalActions(state: GameState, seat: Seat): Action[] {
       case 'setup':
         return setupCandidates(state, phase);
       case 'preRoll':
-        return [{ type: 'rollDice', seat }];
+        return [{ type: 'rollDice', seat }, ...devCardCandidates(state)];
       case 'moveRobber':
         return moveRobberCandidates(state);
+      case 'roadBuilding':
+        return state.roads.map((_, edge) => ({ type: 'buildRoad' as const, seat, edge }));
       case 'main':
-        return mainCandidates(state);
+        return [...mainCandidates(state), ...devCardCandidates(state)];
       case 'gameOver':
         return [];
     }
@@ -127,7 +148,7 @@ function applyValidated(state: GameState, action: Action): GameState {
     case 'moveRobber':
       return applyMoveRobber(state, action);
     case 'buildRoad':
-      return applyBuildRoad(state, action);
+      return phase.kind === 'roadBuilding' ? applyFreeRoad(state, phase, action) : applyBuildRoad(state, action);
     case 'buildSettlement':
       return applyBuildSettlement(state, action);
     case 'buildCity':
@@ -136,6 +157,13 @@ function applyValidated(state: GameState, action: Action): GameState {
       return applyBankTrade(state, action);
     case 'endTurn':
       return applyEndTurn(state);
+    case 'buyDevCard':
+      return applyBuyDevCard(state, action);
+    case 'playKnight':
+    case 'playRoadBuilding':
+    case 'playYearOfPlenty':
+    case 'playMonopoly':
+      return applyPlayDevCard(state, action);
   }
   throw new IllegalActionError('unreachable', action);
 }

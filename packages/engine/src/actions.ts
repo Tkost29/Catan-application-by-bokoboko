@@ -3,7 +3,8 @@ import type { EdgeId, HexId, Resource, ResourceCounts, Seat, VertexId } from './
 /**
  * プレイヤー（人間・AI 共通）が送る操作。
  * すべて「誰が」を seat に持ち、エンジンが手番・フェーズ・ルールを検証してから適用する。
- * 未実装のアクション（発展カード・国内交易）は今後ここに追加する。
+ * 未実装のアクション（国内交易）は今後ここに追加する。
+ * 街道建設カードで置く無料の道は、roadBuilding フェーズ中の buildRoad として送る。
  */
 export type Action =
   // 初期配置（setup）
@@ -31,7 +32,18 @@ export type Action =
       readonly give: Resource;
       readonly receive: Resource;
     }
-  | { readonly type: 'endTurn'; readonly seat: Seat };
+  | { readonly type: 'endTurn'; readonly seat: Seat }
+  // 発展カード（購入は main、使用は preRoll と main）
+  | { readonly type: 'buyDevCard'; readonly seat: Seat }
+  | { readonly type: 'playKnight'; readonly seat: Seat }
+  | { readonly type: 'playRoadBuilding'; readonly seat: Seat }
+  | {
+      readonly type: 'playYearOfPlenty';
+      readonly seat: Seat;
+      /** 銀行から受け取る2枚（同じ資源でもよい） */
+      readonly resources: readonly [Resource, Resource];
+    }
+  | { readonly type: 'playMonopoly'; readonly seat: Seat; readonly resource: Resource };
 
 export type ActionType = Action['type'];
 export type ActionOf<T extends ActionType> = Extract<Action, { type: T }>;

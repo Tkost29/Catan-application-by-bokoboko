@@ -130,21 +130,21 @@ describe('7 の目: 捨て札と盗賊', () => {
     rejects(s, { type: 'discard', seat: 1, resources: { sheep: 4 } });
     rejects(s, { type: 'discard', seat: 2, resources: { sheep: 3 } });
     const after = apply(s, { type: 'discard', seat: 1, resources: { wood: 2, brick: 2 } });
-    expect(after.phase).toEqual({ kind: 'moveRobber' });
+    expect(after.phase).toEqual({ kind: 'moveRobber', returnTo: 'main' });
     expect(after.players[1]!.hand).toMatchObject({ wood: 3, brick: 2 });
     checkInvariants(after);
   });
 
   it('誰も7枚を超えていなければ、すぐ盗賊の移動へ', () => {
     const s = rollSeven({ ...emptyBoardMain('seven2'), phase: { kind: 'preRoll' } });
-    expect(s.phase).toEqual({ kind: 'moveRobber' });
+    expect(s.phase).toEqual({ kind: 'moveRobber', returnTo: 'main' });
   });
 
   it('盗賊は別のヘックスへ。建物を持つ相手がいればその人から1枚奪う', () => {
     const h = [...Array(19).keys()].find((x) => x !== base.robberHex)!;
     const s: GameState = {
       ...place(emptyBoardMain('rob', { 1: { wood: 2 } }), { settlements: [[1, T.hexVertices[h]![0]!]] }),
-      phase: { kind: 'moveRobber' },
+      phase: { kind: 'moveRobber', returnTo: 'main' },
     };
     rejects(s, { type: 'moveRobber', seat: 0, hex: s.robberHex, victim: null });
     rejects(s, { type: 'moveRobber', seat: 0, hex: h, victim: null }); // 奪える相手がいるのに選ばない

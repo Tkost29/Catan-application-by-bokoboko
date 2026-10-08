@@ -66,6 +66,18 @@ export function updateLongestRoad(state: GameState): GameState {
 }
 
 /**
+ * 騎士を使ったあとに最大騎士力の保持者を更新する。
+ * 規定数（通常3）以上で、今の保持者より多く使った場合だけ移る（同数なら保持者のまま）。
+ */
+export function updateLargestArmy(state: GameState, seat: Seat): GameState {
+  const knights = state.players[seat]!.playedKnights;
+  const holder = state.largestArmy;
+  if (holder === seat || knights < state.config.largestArmyMinKnights) return state;
+  if (holder !== null && knights <= state.players[holder]!.playedKnights) return state;
+  return { ...state, largestArmy: seat };
+}
+
+/**
  * 勝利点。includeHidden が false なら他人から見える点（勝利点カードを除く）。
  */
 export function victoryPoints(state: GameState, seat: Seat, includeHidden = true): number {

@@ -19,6 +19,7 @@ function createPlayer(config: GameConfig, seat: Seat): PlayerState {
     seat,
     hand: emptyResources(),
     devCards: [],
+    playedDevCards: [],
     playedKnights: 0,
     piecesLeft: { ...config.pieceLimits },
   };
@@ -54,6 +55,7 @@ export function createGame(seed: string, config: GameConfig = DEFAULT_CONFIG): G
     phase: { kind: 'setup', round: 1, step: 'settlement', lastSettlement: null },
     turn: 0,
     currentSeat: 0,
+    devCardPlayedThisTurn: false,
     lastRoll: null,
     rngState: seedState(`game:${seed}`),
     winner: null,
