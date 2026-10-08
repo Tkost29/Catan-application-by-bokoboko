@@ -1,15 +1,40 @@
-import type { EdgeId, Seat, VertexId } from './types.js';
+import type { EdgeId, HexId, Resource, ResourceCounts, Seat, VertexId } from './types.js';
 
 /**
  * プレイヤー（人間・AI 共通）が送る操作。
  * すべて「誰が」を seat に持ち、エンジンが手番・フェーズ・ルールを検証してから適用する。
- * 未実装のアクションは今後ここに追加する。
+ * 未実装のアクション（発展カード・国内交易）は今後ここに追加する。
  */
 export type Action =
+  // 初期配置（setup）
   | { readonly type: 'placeSettlement'; readonly seat: Seat; readonly vertex: VertexId }
-  | { readonly type: 'placeRoad'; readonly seat: Seat; readonly edge: EdgeId };
+  | { readonly type: 'placeRoad'; readonly seat: Seat; readonly edge: EdgeId }
+  // サイコロ前（preRoll）
+  | { readonly type: 'rollDice'; readonly seat: Seat }
+  // 7 が出たとき（discard → moveRobber）
+  | { readonly type: 'discard'; readonly seat: Seat; readonly resources: Partial<ResourceCounts> }
+  | {
+      readonly type: 'moveRobber';
+      readonly seat: Seat;
+      readonly hex: HexId;
+      /** 1枚奪う相手。奪える相手がいなければ null */
+      readonly victim: Seat | null;
+    }
+  // メイン（main）
+  | { readonly type: 'buildRoad'; readonly seat: Seat; readonly edge: EdgeId }
+  | { readonly type: 'buildSettlement'; readonly seat: Seat; readonly vertex: VertexId }
+  | { readonly type: 'buildCity'; readonly seat: Seat; readonly vertex: VertexId }
+  | {
+      /** 銀行・港との交易（海外交易）。give をレート分渡して receive を1枚受け取る */
+      readonly type: 'bankTrade';
+      readonly seat: Seat;
+      readonly give: Resource;
+      readonly receive: Resource;
+    }
+  | { readonly type: 'endTurn'; readonly seat: Seat };
 
 export type ActionType = Action['type'];
+export type ActionOf<T extends ActionType> = Extract<Action, { type: T }>;
 
 /** 不正なアクションを適用しようとしたときのエラー（状態は変わらない） */
 export class IllegalActionError extends Error {

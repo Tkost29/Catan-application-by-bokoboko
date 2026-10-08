@@ -54,6 +54,7 @@ export function createGame(seed: string, config: GameConfig = DEFAULT_CONFIG): G
     phase: { kind: 'setup', round: 1, step: 'settlement', lastSettlement: null },
     turn: 0,
     currentSeat: 0,
+    lastRoll: null,
     rngState: seedState(`game:${seed}`),
     winner: null,
   };

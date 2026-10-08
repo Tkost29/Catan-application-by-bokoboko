@@ -1,8 +1,10 @@
 import { topologyFor } from '../board/generate.js';
 import type { Action } from '../actions.js';
-import type { GameState, Phase, PlayerState } from '../state.js';
+import type { GameState, Phase } from '../state.js';
 import { TERRAIN_RESOURCE, type ResourceCounts, type Seat } from '../types.js';
+import { updatePlayer } from './common.js';
 import { isEdgeEmpty, satisfiesDistanceRule } from './placement.js';
+import { updateLongestRoad } from './score.js';
 
 type SetupPhase = Extract<Phase, { kind: 'setup' }>;
 type SetupAction = Extract<Action, { type: 'placeSettlement' | 'placeRoad' }>;
@@ -49,10 +51,6 @@ export function applySetupAction(state: GameState, phase: SetupPhase, action: Se
     : placeSetupRoad(state, phase, action.seat, action.edge);
 }
 
-function updatePlayer(state: GameState, seat: Seat, update: (p: PlayerState) => PlayerState): PlayerState[] {
-  return state.players.map((p) => (p.seat === seat ? update(p) : p));
-}
-
 function placeSetupSettlement(state: GameState, phase: SetupPhase, seat: Seat, vertex: number): GameState {
   const buildings = state.buildings.slice();
   buildings[vertex] = { owner: seat, kind: 'settlement' };
@@ -96,7 +94,7 @@ function placeSetupRoad(state: GameState, phase: SetupPhase, seat: Seat, edge: n
     ...p,
     piecesLeft: { ...p.piecesLeft, road: p.piecesLeft.road - 1 },
   }));
-  const placed: GameState = { ...state, roads, players };
+  const placed: GameState = updateLongestRoad({ ...state, roads, players });
 
   // 1巡目は席順に進み、最後の席はそのまま2巡目の先頭になる。2巡目は逆順に戻る
   const last = state.config.playerCount - 1;

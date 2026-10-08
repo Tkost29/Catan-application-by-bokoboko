@@ -28,6 +28,7 @@ export interface PlayerView {
   readonly phase: GameState['phase'];
   readonly turn: number;
   readonly currentSeat: Seat;
+  readonly lastRoll: GameState['lastRoll'];
   readonly winner: Seat | null;
   readonly me: PlayerState;
   readonly opponents: readonly OpponentView[];
@@ -52,6 +53,7 @@ export function toPlayerView(state: GameState, seat: Seat): PlayerView {
     phase: state.phase,
     turn: state.turn,
     currentSeat: state.currentSeat,
+    lastRoll: state.lastRoll,
     winner: state.winner,
     me,
     opponents: state.players

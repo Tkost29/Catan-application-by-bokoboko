@@ -119,14 +119,15 @@ describe('初期配置', () => {
 
   it('ランダムな初期配置を300ゲーム回しても、毎手で不変条件を満たす', () => {
     for (let i = 0; i < 300; i++) {
-      const { state, actions } = playRandomly(createGame(`rand-${i}`), `choice-${i}`, 100, checkInvariants);
+      // 初期配置は4人×(開拓地+道)×2巡 = 16手
+      const { state, actions } = playRandomly(createGame(`rand-${i}`), `choice-${i}`, 16, checkInvariants);
       expect(actions).toHaveLength(16);
       expect(state.phase.kind).toBe('preRoll');
     }
   });
 
   it('同じシード・同じアクション列なら同じ最終状態（リプレイ可能）', () => {
-    const { state, actions } = playRandomly(createGame('replay'), 'choices');
+    const { state, actions } = playRandomly(createGame('replay'), 'choices', 16);
     const replayed = actions.reduce(apply, createGame('replay'));
     expect(replayed).toEqual(state);
   });

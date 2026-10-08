@@ -19,8 +19,12 @@ export interface PlayerState {
 
 /**
  * ゲームの進行段階。
- * 初期配置は1巡目（席順）→ 2巡目（逆順）で、各巡とも開拓地 → 道の順に置く。
- * 未実装のフェーズは今後ここに追加する。
+ *
+ * setup（初期配置: 1巡目は席順、2巡目は逆順。開拓地 → 道）
+ *   → preRoll（サイコロ前）
+ *   → 7 以外: 生産して main（交易・建設）
+ *   → 7: discard（手札が多い人が同時に捨てる）→ moveRobber（盗賊移動・略奪）→ main
+ *   → main で endTurn すると次の席の preRoll。勝利点が目標に届いたら gameOver
  */
 export type Phase =
   | {
@@ -30,7 +34,15 @@ export type Phase =
       /** 直前に置いた開拓地（道はここにつなげる）。step が 'road' のときだけ値を持つ */
       readonly lastSettlement: VertexId | null;
     }
-  | { readonly kind: 'preRoll' };
+  | { readonly kind: 'preRoll' }
+  | {
+      readonly kind: 'discard';
+      /** 席ごとの「まだ捨てなければならない枚数」（index = Seat、0 なら済み） */
+      readonly remaining: readonly number[];
+    }
+  | { readonly kind: 'moveRobber' }
+  | { readonly kind: 'main' }
+  | { readonly kind: 'gameOver' };
 
 /** サーバだけが持つ完全情報のゲーム状態。プレイヤーには toPlayerView で絞って渡す */
 export interface GameState {
@@ -52,6 +64,8 @@ export interface GameState {
   /** 通常手番の通し番号。初期配置中は 0 */
   readonly turn: number;
   readonly currentSeat: Seat;
+  /** 直近のダイスの目（UI 表示用）。まだ振っていなければ null */
+  readonly lastRoll: readonly [number, number] | null;
   /** ダイスなどゲーム中に使う乱数の状態（rng.ts の nextRandom で進める） */
   readonly rngState: number;
   readonly winner: Seat | null;
