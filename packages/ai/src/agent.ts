@@ -1,4 +1,17 @@
-import type { Action, PlayerView } from '@bokoboko/engine';
+import type { Action, PlayerView, ResourceCounts, Seat, TradeTerms } from '@bokoboko/engine';
+
+/**
+ * 交換の募集。「ほしい物」と「あげてもいい物（上限枚数）」だけを決めて、
+ * 相手に具体的な条件を出してもらう。
+ */
+export interface TradeRequest {
+  /** 募集した人（手番プレイヤー） */
+  readonly from: Seat;
+  /** ほしい資源と枚数 */
+  readonly want: Partial<ResourceCounts>;
+  /** あげてもいい資源と、それぞれの上限枚数 */
+  readonly offer: Partial<ResourceCounts>;
+}
 
 /**
  * AI プレイヤーの共通インターフェース。
@@ -12,6 +25,11 @@ export interface Agent {
   /** 表示・ログ用の名前（例: "rule-based"） */
   readonly name: string;
   decide(view: PlayerView, legal: readonly Action[]): Action;
+  /**
+   * 交換の募集に、自分なら応じられる条件を返す（応じられなければ null）。
+   * 条件は募集した人（提案者）から見た向き。返した条件をそのまま提案されたら必ず応じること。
+   */
+  answerRequest?(view: PlayerView, request: TradeRequest): TradeTerms | null;
 }
 
 /** 難易度（席ごとに設定する） */

@@ -1,4 +1,4 @@
-import type { Action, Resource, ResourceCounts, Seat } from '@bokoboko/engine';
+import type { Action, Resource, ResourceCounts, Seat, TradeTerms } from '@bokoboko/engine';
 import type { BoardHighlights } from './board.js';
 
 /** 画面だけが持つ状態（ゲームのルールには関係しない） */
@@ -13,9 +13,17 @@ export type Dialog =
   | { readonly kind: 'bank'; give: Resource; receive: Resource }
   /** 交易の条件を組む。my* は「自分から見た」向き（提案者かどうかで terms に変換する） */
   | { readonly kind: 'trade'; to: Seat; myGive: Counts; myGet: Counts; readonly counter: boolean }
+  /** 募集: ほしい物とあげてもいい物（上限）を決め、各 CPU が出した条件から選ぶ */
+  | { readonly kind: 'request'; want: Counts; offer: Counts; replies: OfferReply[] | null }
   | { readonly kind: 'plenty'; a: Resource; b: Resource }
   | { readonly kind: 'monopoly'; resource: Resource }
   | { readonly kind: 'newGame' };
+
+/** 募集への返答。terms は募集した人（自分）から見た向き。応じられなければ null */
+export interface OfferReply {
+  readonly seat: Seat;
+  readonly terms: TradeTerms | null;
+}
 
 export interface UiState {
   mode: BuildMode;

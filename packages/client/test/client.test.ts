@@ -125,3 +125,45 @@ describe('できごとのログ', () => {
     expect(describeAction(s, action, after, names, 2).join()).toContain('鉱石1');
   });
 });
+
+describe('交換の募集', () => {
+  it('入力が足りない募集には、直し方がわかる理由を出す', () => {
+    const game = new LocalGame({ aiLevels: [1, 1, 1], randomSeat: false, seed: 'req-msg' });
+    game.state = { ...game.state, phase: { kind: 'main' }, turn: 1 };
+    expect(game.requestProblem(zeroCounts(), { ...zeroCounts(), wood: 1 })).toContain('ほしい物');
+    expect(game.requestProblem({ ...zeroCounts(), ore: 1 }, zeroCounts())).toContain('あげてもいい物');
+    expect(game.requestProblem({ ...zeroCounts(), ore: 1 }, { ...zeroCounts(), ore: 1 })).toContain('両方');
+  });
+
+  it('CPUが返した条件を選ぶと、そのCPUは必ず応じて交換が成立する', () => {
+    let deals = 0;
+    for (let g = 0; g < 6 && deals < 5; g++) {
+      const game = new LocalGame({ aiLevels: [1, 0, 1], randomSeat: false, seed: `req-${g}` });
+      const me = new RuleBasedAgent(`me-${g}`);
+      for (let i = 0; i < 5000 && game.state.winner === null; i++) {
+        if (game.aiStep()) continue;
+        const legal = game.legal();
+        // 自分の手番の main で、持っている物を全部出してよい条件で、足りない資源を1枚募集する
+        if (legal.some((a) => a.type === 'proposeTrade') && i % 3 === 0) {
+          const hand = game.view().me.hand;
+          const want = (['ore', 'wheat', 'sheep', 'brick', 'wood'] as const).find((r) => hand[r] === 0);
+          if (want) {
+            const replies = game.askForOffers({ ...zeroCounts(), [want]: 1 }, { ...hand, [want]: 0 });
+            const pick = replies.find((r) => r.terms !== null);
+            if (pick) {
+              const before = game.view().me.hand[want];
+              expect(game.act({ type: 'proposeTrade', seat: game.humanSeat, to: pick.seat, terms: pick.terms! })).toBeNull();
+              expect(game.aiStep()).toBe(true);
+              expect(game.state.phase.kind).toBe('main');
+              expect(game.view().me.hand[want]).toBe(before + 1);
+              deals++;
+              continue;
+            }
+          }
+        }
+        expect(game.act(me.decide(game.view(), legal))).toBeNull();
+      }
+    }
+    expect(deals).toBeGreaterThanOrEqual(5);
+  });
+});

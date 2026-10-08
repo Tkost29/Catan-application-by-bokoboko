@@ -10,7 +10,7 @@ import {
   type Rng,
   type TradeTerms,
 } from '@bokoboko/engine';
-import type { Agent } from './agent.js';
+import type { Agent, TradeRequest } from './agent.js';
 import {
   addCounts,
   missingCards,
@@ -305,8 +305,39 @@ export class RuleBasedAgent implements Agent {
     const accept = of(legal, 'acceptTrade')[0];
     const reject = of(legal, 'rejectTrade')[0];
     if (!accept) return reject;
-    if (visiblePoints(view, partner) >= view.config.victoryPointsToWin - 2) return reject;
-    return this.tradeGain(view, terms, view.seat === trade.proposer) > 0 ? accept : reject;
+    return this.wouldAccept(view, partner, terms, view.seat === trade.proposer) ? accept : reject;
+  }
+
+  /**
+   * この条件の交換に応じるか。
+   * - あと2点以内で勝ちそうな相手とは交換しない
+   * - 自分の目標（次に作るもの）に近づくときだけ応じる
+   */
+  private wouldAccept(view: PlayerView, partner: number, terms: TradeTerms, iAmProposer: boolean): boolean {
+    if (visiblePoints(view, partner) >= view.config.victoryPointsToWin - 2) return false;
+    return this.tradeGain(view, terms, iAmProposer) > 0;
+  }
+
+  /**
+   * 募集への返答。自分がほしい物を渡せて、相手の「あげてもいい物」の中から
+   * 自分の目標に一番近づく組み合わせを選ぶ。受け取る枚数は渡す枚数以下にする。
+   */
+  answerRequest(view: PlayerView, request: TradeRequest): TradeTerms | null {
+    const want = request.want;
+    const giveCount = totalCards(want);
+    if (giveCount === 0 || !RESOURCES.every((r) => view.me.hand[r] >= (want[r] ?? 0))) return null;
+
+    // 相手のほしい物と同じ資源は、もらう側に入れられない
+    const pool = RESOURCES.filter((r) => (request.offer[r] ?? 0) > 0 && (want[r] ?? 0) === 0);
+    let best: { terms: TradeTerms; score: number } | null = null;
+    for (const pick of distributions(pool, request.offer, giveCount)) {
+      const terms: TradeTerms = { give: pick, receive: want };
+      if (!this.wouldAccept(view, request.from, terms, false)) continue;
+      // 目標への前進が大きいもの、同じなら多くもらえるもの
+      const score = this.tradeGain(view, terms, false) + 0.01 * totalCards(pick);
+      if (!best || score > best.score) best = { terms, score };
+    }
+    return best?.terms ?? null;
   }
 
   /** 交換したら目標に何枚近づくか（マイナスなら遠ざかる） */
@@ -340,6 +371,31 @@ export class RuleBasedAgent implements Agent {
 
 function of<T extends ActionType>(legal: readonly Action[], type: T): ActionOf<T>[] {
   return legal.filter((a): a is ActionOf<T> => a.type === type);
+}
+
+/** pool の資源から、上限 max を超えずに合計 1〜limit 枚を選ぶ組み合わせをすべて列挙する */
+function distributions(
+  pool: readonly Resource[],
+  max: Partial<ResourceCounts>,
+  limit: number,
+): Partial<ResourceCounts>[] {
+  const out: Partial<ResourceCounts>[] = [];
+  const pick: Partial<ResourceCounts> = {};
+  const rec = (i: number, used: number): void => {
+    if (i === pool.length) {
+      if (used > 0) out.push({ ...pick });
+      return;
+    }
+    const r = pool[i]!;
+    for (let n = 0; n <= Math.min(max[r] ?? 0, limit - used); n++) {
+      if (n > 0) pick[r] = n;
+      else delete pick[r];
+      rec(i + 1, used + n);
+    }
+    delete pick[r];
+  };
+  rec(0, 0);
+  return out;
 }
 
 function singleResource(counts: Partial<ResourceCounts>): Resource | undefined {

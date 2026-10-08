@@ -130,3 +130,59 @@ describe('難易度の登録', () => {
     expect(Object.keys(AI_LEVELS)).toEqual(['0', '1']);
   });
 });
+
+describe('交換の募集への返答', () => {
+  /** AI 同士の対戦から、main フェーズの途中局面を集める */
+  function midGameStates(seed: string, every = 7): GameState[] {
+    const { actions } = playMatch([0, 1, 2, 3].map((s) => new RuleBasedAgent(`${seed}-${s}`)), seed);
+    const states: GameState[] = [];
+    let s = createGame(seed);
+    actions.forEach((a, i) => {
+      s = apply(s, a);
+      if (s.phase.kind === 'main' && s.winner === null && i % every === 0) states.push(s);
+    });
+    return states;
+  }
+
+  for (const [label, make] of [
+    ['ルールベース', (seed: string) => new RuleBasedAgent(seed)],
+    ['ランダム', (seed: string) => new RandomAgent(seed)],
+  ] as const) {
+    it(`${label}AIは、自分が返した条件をそのまま提案されたら必ず応じる`, () => {
+      let answered = 0;
+      for (const state of midGameStates(`req-${label}`)) {
+        const from = state.currentSeat;
+        const hand = state.players[from]!.hand;
+        for (const r of ['wood', 'brick', 'sheep', 'wheat', 'ore'] as const) {
+          for (const seat of [0, 1, 2, 3].filter((x) => x !== from)) {
+            const agent = make(`answer-${seat}`);
+            const offer = { ...hand, [r]: 0 };
+            const terms = agent.answerRequest!(toPlayerView(state, seat), { from, want: { [r]: 1 }, offer });
+            if (terms === null) continue;
+            answered++;
+            const proposed = apply(state, { type: 'proposeTrade', seat: from, to: seat, terms });
+            const reply = agent.decide(toPlayerView(proposed, seat), legalActions(proposed, seat));
+            expect(reply.type).toBe('acceptTrade');
+          }
+        }
+      }
+      expect(answered).toBeGreaterThan(10);
+    });
+  }
+
+  it('ほしい物を持っていない、または相手が勝ちそうなら返答しない', () => {
+    const base = createGame('req-none');
+    const view1 = toPlayerView(base, 1); // 手札なし
+    const agent = new RuleBasedAgent('n');
+    expect(agent.answerRequest(view1, { from: 0, want: { ore: 1 }, offer: { wood: 2 } })).toBeNull();
+
+    // 席0を8点（都市4つ）にすると、手札があっても応じない
+    const buildings = base.buildings.slice();
+    const vs: number[] = [];
+    for (let v = 0; vs.length < 4; v++) if (vs.every((c) => c !== v && !T.vertexNeighbors[c]!.includes(v))) vs.push(v);
+    for (const v of vs) buildings[v] = { owner: 0, kind: 'city' };
+    const players = base.players.map((p) => (p.seat === 1 ? { ...p, hand: { ...emptyResources(), ore: 2, sheep: 0 } } : p));
+    const s: GameState = { ...base, buildings, players, phase: { kind: 'main' } };
+    expect(agent.answerRequest(toPlayerView(s, 1), { from: 0, want: { ore: 1 }, offer: { sheep: 1, wheat: 1 } })).toBeNull();
+  });
+});

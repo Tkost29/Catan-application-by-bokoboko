@@ -133,7 +133,7 @@ function renderActions(game: LocalGame, view: PlayerView, legal: readonly Action
     if (ui.mode !== 'none') parts.push('<p class="hint">盤面の光っている場所を選んでください。</p>');
     parts.push('<div class="row">');
     parts.push(btn('open:bank', '銀行・港と交換', { disabled: !has(legal, 'bankTrade') }));
-    parts.push(btn('open:trade', 'プレイヤーと交渉', { disabled: !has(legal, 'proposeTrade') }));
+    parts.push(btn('open:request', 'プレイヤーと交渉', { disabled: !has(legal, 'proposeTrade') }));
     parts.push('</div>');
     parts.push(devCardButtons(legal));
     parts.push(`<div class="row end">${btn('endTurn', '手番を終える', { primary: true })}</div>`);
@@ -235,7 +235,36 @@ function renderDialog(game: LocalGame, view: PlayerView, legal: readonly Action[
         `<p class="label">あなたが出す</p><div class="counters">${RESOURCES.map((r) => counter('myGive', r, d.myGive[r], view.me.hand[r])).join('')}</div>` +
         `<p class="label">あなたがもらう</p><div class="counters">${RESOURCES.map((r) => counter('myGet', r, d.myGet[r], 9)).join('')}</div>` +
         (reason ? `<p class="hint">${escapeHtml(reason)}</p>` : '') +
-        `<div class="row">${btn('trade:send', d.counter ? 'この条件で返す' : '提案する', { primary: true, disabled: reason !== null })}${close}</div>`
+        `<div class="row">${btn('trade:send', d.counter ? 'この条件で返す' : '提案する', { primary: true, disabled: reason !== null })}` +
+        `${d.counter ? '' : btn('open:request', 'ほしい物から募集する')}${close}</div>`
+      );
+    }
+    case 'request': {
+      const problem = game.requestProblem(d.want, d.offer);
+      const replies =
+        d.replies === null
+          ? ''
+          : `<ul class="replies">${d.replies
+              .map((rep) => {
+                const name = escapeHtml(game.names[rep.seat]!);
+                if (rep.terms === null) return `<li class="reply none"><b>${name}</b><span class="muted">応じられない</span></li>`;
+                return (
+                  `<li class="reply"><b>${name}</b>` +
+                  `<span>あなたが出す: <b>${formatCounts(rep.terms.give)}</b> ／ もらう: <b>${formatCounts(rep.terms.receive)}</b></span>` +
+                  btn(`request:take:${rep.seat}`, 'この条件で交換', { primary: true }) +
+                  '</li>'
+                );
+              })
+              .join('')}</ul>` +
+            (d.replies.every((r) => r.terms === null) ? '<p class="hint">応じてくれる人はいませんでした。条件を変えてもう一度聞けます。</p>' : '');
+      return (
+        `<h3 class="dlg-title">交換を募集する</h3>` +
+        `<p class="hint">ほしい物と、代わりにあげてもいい物（上限）を選ぶと、各CPUが応じられる条件を出します。</p>` +
+        `<p class="label">ほしい物</p><div class="counters">${RESOURCES.map((r) => counter('want', r, d.want[r], 9)).join('')}</div>` +
+        `<p class="label">あげてもいい物（この枚数まで）</p><div class="counters">${RESOURCES.map((r) => counter('offer', r, d.offer[r], view.me.hand[r])).join('')}</div>` +
+        (problem && d.replies === null ? `<p class="hint">${escapeHtml(problem)}</p>` : '') +
+        `<div class="row">${btn('request:ask', 'CPUに聞く', { primary: d.replies === null, disabled: problem !== null })}` +
+        `${btn('open:trade', '条件を全部決めて提案')}${close}</div>${replies}`
       );
     }
     case 'plenty': {

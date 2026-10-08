@@ -124,6 +124,39 @@ export class LocalGame {
     return reason;
   }
 
+  /** 募集の入力が送れない理由（送れるなら null） */
+  requestProblem(want: ResourceCounts, offer: ResourceCounts): string | null {
+    const { phase, currentSeat, winner } = this.state;
+    if (winner !== null || phase.kind !== 'main' || currentSeat !== this.humanSeat) return '今は交換を募集できません。';
+    if (RESOURCES.every((r) => want[r] === 0)) return 'ほしい物を1枚以上選んでください。';
+    if (RESOURCES.every((r) => offer[r] === 0)) return 'あげてもいい物を1枚以上選んでください。';
+    if (RESOURCES.some((r) => want[r] > 0 && offer[r] > 0)) return '同じ資源を「ほしい」と「あげてもいい」の両方には入れられません。';
+    return null;
+  }
+
+  /**
+   * 交換を募集し、各 CPU が出した条件を集める（ゲームの状態は変わらない）。
+   * 条件は自分（募集した人）から見た向き。選んで提案すれば、その CPU は必ず応じる。
+   */
+  askForOffers(want: ResourceCounts, offer: ResourceCounts): { seat: Seat; terms: TradeTerms | null }[] {
+    if (this.requestProblem(want, offer) !== null) return [];
+    const request = { from: this.humanSeat, want: nonZero(want), offer: nonZero(offer) };
+    this.log.push({
+      seat: this.humanSeat,
+      text: `${this.names[this.humanSeat]}が交換を募集: ${formatCounts(request.want)}がほしい（${formatCounts(request.offer)}まで出せる）`,
+    });
+    return this.state.players
+      .filter((p) => p.seat !== this.humanSeat)
+      .map((p) => {
+        const agent = this.agents[p.seat];
+        const terms = agent?.answerRequest?.(toPlayerView(this.state, p.seat), request) ?? null;
+        const ok =
+          terms !== null &&
+          validateAction(this.state, { type: 'proposeTrade', seat: this.humanSeat, to: p.seat, terms }) === null;
+        return { seat: p.seat, terms: ok ? terms : null };
+      });
+  }
+
   /** 入力待ちの AI の席（なければ undefined） */
   nextAiSeat(): Seat | undefined {
     return awaitingSeats(this.state).find((s) => this.agents[s] !== null && legalActions(this.state, s).length > 0);

@@ -173,6 +173,17 @@ panelEl.addEventListener('click', (e) => {
     case 'monopoly':
       if (ui.dialog.kind === 'monopoly') return act({ type: 'playMonopoly', seat, resource: ui.dialog.resource });
       return;
+    case 'request':
+      if (ui.dialog.kind !== 'request') return;
+      if (arg === 'ask') {
+        ui.dialog.replies = game.askForOffers(ui.dialog.want, ui.dialog.offer);
+        return render();
+      }
+      if (arg === 'take') {
+        const reply = ui.dialog.replies?.find((r) => r.seat === Number(arg2));
+        if (reply?.terms) return act({ type: 'proposeTrade', seat, to: reply.seat, terms: reply.terms });
+      }
+      return;
     case 'trade':
       if (arg === 'send' && ui.dialog.kind === 'trade') return act(game.tradeAction(ui.dialog));
       if (arg === 'accept') return act({ type: 'acceptTrade', seat });
@@ -203,9 +214,21 @@ panelEl.addEventListener('change', (e) => {
 function step(delta: 1 | -1, group: string, r: Resource): void {
   const d = ui.dialog;
   const target: Counts | undefined =
-    group === 'discard' ? ui.discard : d.kind === 'trade' ? (group === 'myGive' ? d.myGive : d.myGet) : undefined;
+    group === 'discard'
+      ? ui.discard
+      : d.kind === 'trade'
+        ? group === 'myGive'
+          ? d.myGive
+          : d.myGet
+        : d.kind === 'request'
+          ? group === 'want'
+            ? d.want
+            : d.offer
+          : undefined;
   if (!target) return;
   target[r] = Math.max(0, target[r] + delta);
+  // 条件を変えたら、前に聞いた返答は使えない
+  if (d.kind === 'request') d.replies = null;
   render();
 }
 
@@ -217,9 +240,28 @@ function open(what: string): void {
     case 'bank':
       ui.dialog = { kind: 'bank', give: richest, receive: poorest === richest ? 'ore' : poorest };
       break;
-    case 'trade':
-      ui.dialog = { kind: 'trade', to: view.opponents[0]!.seat, myGive: zeroCounts(), myGet: zeroCounts(), counter: false };
+    case 'trade': {
+      // 募集画面から来たら、ほしい物・あげてもいい物を下書きに引き継ぐ
+      const prev = ui.dialog.kind === 'request' ? ui.dialog : null;
+      ui.dialog = {
+        kind: 'trade',
+        to: view.opponents[0]!.seat,
+        myGive: prev ? { ...prev.offer } : zeroCounts(),
+        myGet: prev ? { ...prev.want } : zeroCounts(),
+        counter: false,
+      };
       break;
+    }
+    case 'request': {
+      const prev = ui.dialog.kind === 'trade' ? ui.dialog : null;
+      ui.dialog = {
+        kind: 'request',
+        want: prev ? { ...prev.myGet } : zeroCounts(),
+        offer: prev ? { ...prev.myGive } : zeroCounts(),
+        replies: null,
+      };
+      break;
+    }
     case 'counter': {
       if (view.phase.kind !== 'negotiating') return;
       const t = view.phase.trade;
