@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>ぼこぼこカタン</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap"
+    />
+    <link rel="stylesheet" href="./style.css" />
+    <!-- ビルド後の dist/ からの相対パス。ワークスペースのパッケージ名を実ファイルに対応させる -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@bokoboko/engine": "./packages/engine/src/index.js",
+          "@bokoboko/ai": "./packages/ai/src/index.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1 class="logo">ぼこぼこカタン</h1>
+      <div class="topbar-tools">
+        <label class="speed" for="speed"
+          >CPUの速さ
+          <select id="speed">
+            <option value="slow">ゆっくり</option>
+            <option value="normal">ふつう</option>
+            <option value="fast">はやい</option>
+          </select>
+        </label>
+        <button type="button" class="btn" id="new-game">新しいゲーム</button>
+      </div>
+    </header>
+    <main class="table">
+      <div class="board-wrap" id="board"></div>
+      <aside class="panel" id="panel" aria-live="polite"></aside>
+    </main>
+    <script type="module" src="./packages/client/src/main.js"></script>
+  </body>
+</html>

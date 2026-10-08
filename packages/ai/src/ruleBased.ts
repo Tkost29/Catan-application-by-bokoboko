@@ -43,7 +43,8 @@ const MAX_PROPOSALS_PER_TURN = 2;
 export class RuleBasedAgent implements Agent {
   readonly name = 'rule-based';
   private readonly rng: Rng;
-  private proposals = { turn: -1, count: 0 };
+  /** この手番に出した提案（同じ提案を繰り返さないため） */
+  private proposals: { turn: number; tried: Set<string> } = { turn: -1, tried: new Set() };
 
   constructor(seed: string) {
     this.rng = createRng(`rule-based:${seed}`);
@@ -271,8 +272,9 @@ export class RuleBasedAgent implements Agent {
   }
 
   private proposeTrade(view: PlayerView, legal: readonly Action[], cost: Partial<ResourceCounts>): Action | undefined {
-    if (this.proposals.turn !== view.turn) this.proposals = { turn: view.turn, count: 0 };
-    if (this.proposals.count >= MAX_PROPOSALS_PER_TURN) return undefined;
+    if (this.proposals.turn !== view.turn) this.proposals = { turn: view.turn, tried: new Set() };
+    if (this.proposals.tried.size >= MAX_PROPOSALS_PER_TURN) return undefined;
+    const key = (a: ActionOf<'proposeTrade'>): string => JSON.stringify([a.to, a.terms]);
 
     const target = view.config.victoryPointsToWin;
     const candidates = of(legal, 'proposeTrade').filter((a) => {
@@ -280,10 +282,12 @@ export class RuleBasedAgent implements Agent {
       const receive = singleResource(a.terms.receive);
       if (!give || !receive || totalCards(a.terms.give) !== 1 || totalCards(a.terms.receive) !== 1) return false;
       if (visiblePoints(view, a.to) >= target - 2) return false; // 勝ちそうな相手は助けない
+      if (this.proposals.tried.has(key(a))) return false; // 断られた提案は繰り返さない
       return this.surplus(view, give, cost) > 0 && (cost[receive] ?? 0) > view.me.hand[receive];
     });
-    const choice = this.bestBy(candidates, (a) => -visiblePoints(view, a.to) + this.rng.next());
-    if (choice) this.proposals.count += 1;
+    // 相手は点数の低い人を少し優先しつつ、毎回同じ人に偏らないようにばらけさせる
+    const choice = this.bestBy(candidates, (a) => -0.5 * visiblePoints(view, a.to) + 3 * this.rng.next());
+    if (choice) this.proposals.tried.add(key(choice));
     return choice;
   }
 
