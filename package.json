@@ -1,0 +1,16 @@
+{
+  "name": "catan-application-by-bokoboko",
+  "private": true,
+  "version": "0.1.0",
+  "description": "身内用カタン風ボードゲーム（通常版4人対戦・AIで人数補充）",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
