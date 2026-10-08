@@ -30,6 +30,14 @@ import {
   validatePlayDevCard,
 } from './rules/devcards.js';
 import { checkWinner } from './rules/score.js';
+import {
+  applyNegotiationAction,
+  applyProposeTrade,
+  negotiationCandidates,
+  proposeTradeCandidates,
+  validateNegotiationAction,
+  validateProposeTrade,
+} from './rules/trade.js';
 import { applySetupAction, setupCandidates, validateSetupAction } from './rules/setup.js';
 import type { GameState, Phase } from './state.js';
 import type { Seat } from './types.js';
@@ -47,7 +55,8 @@ const ALLOWED: Readonly<Record<Phase['kind'], readonly ActionType[]>> = {
   discard: ['discard'],
   moveRobber: ['moveRobber'],
   roadBuilding: ['buildRoad'],
-  main: ['buildRoad', 'buildSettlement', 'buildCity', 'bankTrade', 'buyDevCard', ...PLAY_DEV_CARD, 'endTurn'],
+  main: ['buildRoad', 'buildSettlement', 'buildCity', 'bankTrade', 'buyDevCard', ...PLAY_DEV_CARD, 'proposeTrade', 'endTurn'],
+  negotiating: ['acceptTrade', 'rejectTrade', 'counterTrade', 'withdrawTrade'],
   gameOver: [],
 };
 
@@ -57,8 +66,10 @@ export function validateAction(state: GameState, action: Action): string | null 
   if (!Number.isInteger(action.seat) || action.seat < 0 || action.seat >= state.players.length) return 'no such seat';
   const { phase } = state;
   if (!ALLOWED[phase.kind].includes(action.type)) return `${action.type} is not allowed in phase ${phase.kind}`;
-  // 捨て札だけは手番以外の席も同時に入力する
-  if (phase.kind !== 'discard' && action.seat !== state.currentSeat) return 'not your turn';
+  // 捨て札と交易の応答は手番以外の席も入力する（席の確認は各ルールで行う）
+  if (phase.kind !== 'discard' && phase.kind !== 'negotiating' && action.seat !== state.currentSeat) {
+    return 'not your turn';
+  }
 
   switch (action.type) {
     case 'placeSettlement':
@@ -88,6 +99,13 @@ export function validateAction(state: GameState, action: Action): string | null 
     case 'playYearOfPlenty':
     case 'playMonopoly':
       return validatePlayDevCard(state, action);
+    case 'proposeTrade':
+      return validateProposeTrade(state, action);
+    case 'acceptTrade':
+    case 'rejectTrade':
+    case 'counterTrade':
+    case 'withdrawTrade':
+      return phase.kind === 'negotiating' ? validateNegotiationAction(state, phase, action) : 'no trade in progress';
   }
 }
 
@@ -96,6 +114,9 @@ export function legalActions(state: GameState, seat: Seat): Action[] {
   if (state.winner !== null) return [];
   const { phase } = state;
   if (phase.kind === 'discard') return discardCandidates(state, phase, seat);
+  if (phase.kind === 'negotiating') {
+    return negotiationCandidates(phase, seat).filter((a) => validateAction(state, a) === null);
+  }
   if (seat !== state.currentSeat) return [];
 
   const candidates: Action[] = (() => {
@@ -109,7 +130,7 @@ export function legalActions(state: GameState, seat: Seat): Action[] {
       case 'roadBuilding':
         return state.roads.map((_, edge) => ({ type: 'buildRoad' as const, seat, edge }));
       case 'main':
-        return [...mainCandidates(state), ...devCardCandidates(state)];
+        return [...mainCandidates(state), ...devCardCandidates(state), ...proposeTradeCandidates(state)];
       case 'gameOver':
         return [];
     }
@@ -123,6 +144,8 @@ export function awaitingSeats(state: GameState): Seat[] {
   if (state.phase.kind === 'discard') {
     return state.phase.remaining.flatMap((n, seat) => (n > 0 ? [seat] : []));
   }
+  // 交渉中は応答する側（提案者は待っている間も取り下げだけはできる）
+  if (state.phase.kind === 'negotiating') return [state.phase.trade.awaiting];
   return [state.currentSeat];
 }
 
@@ -164,6 +187,14 @@ function applyValidated(state: GameState, action: Action): GameState {
     case 'playYearOfPlenty':
     case 'playMonopoly':
       return applyPlayDevCard(state, action);
+    case 'proposeTrade':
+      return applyProposeTrade(state, action);
+    case 'acceptTrade':
+    case 'rejectTrade':
+    case 'counterTrade':
+    case 'withdrawTrade':
+      if (phase.kind === 'negotiating') return applyNegotiationAction(state, phase, action);
+      break;
   }
   throw new IllegalActionError('unreachable', action);
 }

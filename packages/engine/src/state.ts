@@ -20,6 +20,28 @@ export interface PlayerState {
   readonly piecesLeft: { readonly road: number; readonly settlement: number; readonly city: number };
 }
 
+export type ReturnPhase = 'preRoll' | 'main';
+
+/**
+ * 国内交易の条件。常に「提案者（手番プレイヤー）から見た」向きで書く。
+ * give = 提案者が出す資源、receive = 提案者が受け取る資源。逆提案でも向きは変わらない。
+ */
+export interface TradeTerms {
+  readonly give: Partial<ResourceCounts>;
+  readonly receive: Partial<ResourceCounts>;
+}
+
+/** 進行中の国内交易の交渉（同時に1件まで） */
+export interface TradeNegotiation {
+  /** 提案者（常に手番プレイヤー） */
+  readonly proposer: Seat;
+  readonly counterparty: Seat;
+  /** 提案・逆提案の履歴。最後の要素が現在の条件 */
+  readonly history: readonly { readonly by: Seat; readonly terms: TradeTerms }[];
+  /** 次に応答する側（承認・拒否・逆提案） */
+  readonly awaiting: Seat;
+}
+
 /**
  * ゲームの進行段階。
  *
@@ -31,9 +53,9 @@ export interface PlayerState {
  *
  * 発展カードは preRoll と main で使える（1手番1枚）。
  *   騎士 → moveRobber、街道建設 → roadBuilding を経て、使った時点のフェーズ（returnTo）に戻る。
+ *
+ * 国内交易は main から negotiating に入り、成立・拒否・取り下げで main に戻る。
  */
-export type ReturnPhase = 'preRoll' | 'main';
-
 export type Phase =
   | {
       readonly kind: 'setup';
@@ -56,6 +78,8 @@ export type Phase =
       readonly returnTo: ReturnPhase;
     }
   | { readonly kind: 'main' }
+  /** main から国内交易の交渉中。成立・拒否・取り下げで main に戻る */
+  | { readonly kind: 'negotiating'; readonly trade: TradeNegotiation }
   | { readonly kind: 'gameOver' };
 
 /** サーバだけが持つ完全情報のゲーム状態。プレイヤーには toPlayerView で絞って渡す */

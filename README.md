@@ -11,6 +11,21 @@ packages/
 
 今後 `ai`・`server`・`client` パッケージを追加していく。
 
+## エンジンの使い方
+
+```ts
+import { apply, awaitingSeats, createGame, legalActions, toPlayerView } from '@bokoboko/engine';
+
+let state = createGame('some-seed');          // 同じシードなら同じ盤面・同じダイス
+const seat = awaitingSeats(state)[0]!;        // 今入力を待っている席
+const view = toPlayerView(state, seat);       // その席から見える情報だけ（UI と AI に渡す）
+const options = legalActions(state, seat);    // その席が今取れる操作
+state = apply(state, options[0]!);            // 不正な操作なら IllegalActionError
+```
+
+国内交易の提案・逆提案は条件が自由なので、`legalActions` には代表的な単純な条件（1:1・2:1・1:2）だけが並ぶ。
+UI からはそれ以外の条件も `apply` にそのまま渡せる。
+
 ## エンジンの現状
 
 | 機能 | 状態 |
@@ -26,7 +41,7 @@ packages/
 | 建設（道・開拓地・都市）・海外交易（4:1 / 港 3:1・2:1）・手番終了 | 済 |
 | 最長交易路・勝利判定（自分の手番中に10点） | 済 |
 | 発展カード（購入、騎士・街道建設・収穫・独占、勝利点）・最大騎士力 | 済 |
-| 国内交易（提案・承認・拒否・逆提案） | 未 |
+| 国内交易（相手を指定して自由に提案、承認・拒否・逆提案、取り下げ、往復上限） | 済 |
 
 ## 開発
 

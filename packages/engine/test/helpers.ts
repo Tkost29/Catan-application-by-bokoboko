@@ -89,6 +89,9 @@ export const builderPolicy: Policy = (legal, rng) => {
     (rng.next() < 0.5 ? pick(['buildRoad']) : undefined) ??
     (rng.next() < 0.4 ? pick(['buyDevCard']) : undefined) ??
     (rng.next() < 0.3 ? pick(['bankTrade']) : undefined) ??
+    (rng.next() < 0.1 ? pick(['proposeTrade']) : undefined) ??
+    // 交渉中は承認・拒否を多めに、時々逆提案・取り下げ
+    (rng.next() < 0.7 ? pick(['acceptTrade', 'rejectTrade']) : undefined) ??
     pick(['endTurn']) ??
     legal[rng.int(legal.length)]!
   );
