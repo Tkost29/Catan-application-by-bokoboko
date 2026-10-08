@@ -27,7 +27,7 @@ packages/
 Node.js 20 以上。
 
 ```sh
-npm install        # 初回のみ。生成された package-lock.json はコミットする
+npm install        # 初回のみ。パッケージを追加・更新したら package-lock.json もコミットする
 npm test           # 全パッケージのテスト
 npm run typecheck  # 型チェック
 ```
