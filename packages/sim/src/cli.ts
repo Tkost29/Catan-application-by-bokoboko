@@ -14,7 +14,7 @@ import { runGame, type SeatStrategy } from './runner.js';
  *   mixed     grid と同じだが、残り3席の方針も盤面ごとにランダム（ランダム配置は除く）。
  *             標準AI以外が相手でも結論が変わらないかを確かめる
  *
- * オプション: --games N --out FILE --shard K --shards M --placements a,b --plays x,y
+ * オプション: --games N --start S --out FILE --shard K --shards M --placements a,b --plays x,y
  * --plays には標準からの小さな変更も書ける（例: city-0.5,devCard+1,noSpareDev,eagerKnights。styles.ts 参照）
  */
 
@@ -26,6 +26,8 @@ const opt = (name: string, fallback: string): string => {
 };
 
 const games = Number(opt('games', '100'));
+/** 盤面番号の開始位置（追試で別の盤面を使うとき） */
+const start = Number(opt('start', '0'));
 const shard = Number(opt('shard', '0'));
 const shards = Number(opt('shards', '1'));
 const out = opt('out', `results/${command}.jsonl`);
@@ -47,7 +49,7 @@ const STANDARD: SeatStrategy = { placement: 'standard', play: 'standard' };
 const started = Date.now();
 let done = 0;
 
-for (let g = shard; g < games; g += shards) {
+for (let g = start + shard; g < start + games; g += shards) {
   const lines: string[] = [];
   if (command === 'baseline') {
     for (const r of runGame('baseline', `base:${g}`, [STANDARD, STANDARD, STANDARD, STANDARD], null)) {
