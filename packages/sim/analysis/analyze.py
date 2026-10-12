@@ -130,6 +130,51 @@ def analyze_baseline(df: pd.DataFrame) -> dict:
     out["bins"]["port"] = res
 
     out["logit"] = logistic(df)
+
+    # その資源が取れない人の勝率
+    print("\n-- 初期配置で取れない資源別の勝率 --")
+    out["missing"] = []
+    for r in RES:
+        g = df[df[f"pips_{r}"] == 0]
+        rr = rate(int(g["win"].sum()), len(g))
+        out["missing"].append({"resource": r, "share": len(g) / len(df), **rr})
+        print(f"{r:>6}（{len(g) / len(df) * 100:4.1f}%の人）: {fmt(rr)}")
+
+    # 接する数字の種類数（出やすさの合計はほぼ同じ）
+    out["bins"]["distinctNumbers"] = []
+    print("\n-- 接する数字の種類数別の勝率 --")
+    for k, g in df.groupby("distinctNumbers"):
+        if len(g) < 100:
+            continue
+        rr = rate(int(g["win"].sum()), len(g))
+        out["bins"]["distinctNumbers"].append({"bin": int(k), "avgPips": float(g["totalPips"].mean()), **rr})
+        print(f"{k}種: {fmt(rr)} 平均pips {g['totalPips'].mean():.1f}")
+
+    # 建設の速さ（相関であって因果ではない）
+    def timing(col: str, edges: list[tuple[int, int, str]]) -> list[dict]:
+        t = df[col].fillna(10**6)
+        res = []
+        for lo, hi, lab in edges:
+            g = df[(t >= lo) & (t < hi)]
+            res.append({"bin": lab, **rate(int(g["win"].sum()), len(g))})
+            print(f"{lab:>8}: {fmt(res[-1])}")
+        return res
+
+    print("\n-- 3軒目の開拓地を建てた手番別の勝率 --")
+    out["thirdSettlement"] = timing("thirdSettlementTurn", [(0, 15, "〜14"), (15, 25, "15〜24"), (25, 40, "25〜39"), (40, 10**6, "40〜"), (10**6, 10**6 + 1, "建てず")])
+    print("\n-- 最初の都市を建てた手番別の勝率 --")
+    out["firstCity"] = timing("firstCityTurn", [(0, 20, "〜19"), (20, 35, "20〜34"), (35, 50, "35〜49"), (50, 10**6, "50〜"), (10**6, 10**6 + 1, "建てず")])
+
+    # 配置の型ごとの勝率と、勝者の勝利点の内訳
+    out["profiles"] = []
+    print("\n-- 配置の型ごとの勝率と勝ち方 --")
+    for pf in ["鉱石・小麦寄り", "中間", "木材・レンガ寄り"]:
+        g = df[df["profile"] == pf]
+        w = g[g["win"] == 1]
+        d = {"profile": pf, "share": len(g) / len(df), **rate(int(g["win"].sum()), len(g)), **vp_sources(w),
+             "devBought": float(w["devBought"].mean()), "roads": float(w["roads"].mean())}
+        out["profiles"].append(d)
+        print(pf, fmt(rate(int(g["win"].sum()), len(g))), {k: round(v, 2) for k, v in vp_sources(w).items()}, "発展購入", round(d["devBought"], 1))
     return out
 
 

@@ -1,4 +1,4 @@
-import { RuleBasedAgent, strategyOf, type PlacementPreset, type PlayPreset } from '@bokoboko/ai';
+import { RuleBasedAgent } from '@bokoboko/ai';
 import {
   apply,
   awaitingSeats,
@@ -11,11 +11,14 @@ import {
   type VertexId,
 } from '@bokoboko/engine';
 import { placementFeatures, playerOutcome, type PlacementFeatures, type PlayerOutcome } from './features.js';
+import { resolveStrategy } from './styles.js';
 
 /** 1席分の方針 */
 export interface SeatStrategy {
-  readonly placement: PlacementPreset;
-  readonly play: PlayPreset;
+  /** 配置のプリセット名（PLACEMENT_PRESETS） */
+  readonly placement: string;
+  /** 手番中の方針（プリセット名か、styles.ts の resolvePlay の書式） */
+  readonly play: string;
 }
 
 /** 1試合・1席分の記録（分析の1行） */
@@ -26,8 +29,8 @@ export interface PlayerRecord {
   readonly seat: Seat;
   /** 方針を変えた「試す席」か（それ以外は標準AI） */
   readonly test: boolean;
-  readonly placement: PlacementPreset;
-  readonly play: PlayPreset;
+  readonly placement: string;
+  readonly play: string;
   /** 試合の長さ（手番数） */
   readonly turns: number;
   /** 手数の上限で打ち切ったか */
@@ -49,7 +52,7 @@ export function runGame(
   testSeat: Seat | null,
 ): PlayerRecord[] {
   const agents = strategies.map(
-    (s, seat) => new RuleBasedAgent(`${boardSeed}:${seat}:${s.placement}:${s.play}`, strategyOf(s.placement, s.play)),
+    (s, seat) => new RuleBasedAgent(`${boardSeed}:${seat}:${s.placement}:${s.play}`, resolveStrategy(s.placement, s.play)),
   );
   let state: GameState = createGame(boardSeed);
   const n = state.players.length;

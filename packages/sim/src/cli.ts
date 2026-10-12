@@ -1,4 +1,5 @@
 import { PLACEMENT_PRESETS, PLAY_PRESETS, type PlacementPreset, type PlayPreset } from '@bokoboko/ai';
+import { resolveStrategy } from './styles.js';
 import { createRng } from '@bokoboko/engine';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -14,6 +15,7 @@ import { runGame, type SeatStrategy } from './runner.js';
  *             標準AI以外が相手でも結論が変わらないかを確かめる
  *
  * オプション: --games N --out FILE --shard K --shards M --placements a,b --plays x,y
+ * --plays には標準からの小さな変更も書ける（例: city-0.5,devCard+1,noSpareDev,eagerKnights。styles.ts 参照）
  */
 
 const args = process.argv.slice(2);
@@ -27,11 +29,16 @@ const games = Number(opt('games', '100'));
 const shard = Number(opt('shard', '0'));
 const shards = Number(opt('shards', '1'));
 const out = opt('out', `results/${command}.jsonl`);
-const placements = opt('placements', Object.keys(PLACEMENT_PRESETS).join(',')).split(',') as PlacementPreset[];
-const plays = opt('plays', Object.keys(PLAY_PRESETS).join(',')).split(',') as PlayPreset[];
+const placements = opt('placements', Object.keys(PLACEMENT_PRESETS).join(',')).split(',');
+const plays = opt('plays', Object.keys(PLAY_PRESETS).join(',')).split(',');
 
-for (const p of placements) if (!(p in PLACEMENT_PRESETS)) fail(`unknown placement: ${p}`);
-for (const p of plays) if (!(p in PLAY_PRESETS)) fail(`unknown play style: ${p}`);
+for (const p of placements) for (const q of plays) {
+  try {
+    resolveStrategy(p, q);
+  } catch (e) {
+    fail(String(e));
+  }
+}
 
 mkdirSync(dirname(out), { recursive: true });
 if (shards === 1) writeFileSync(out, '');
