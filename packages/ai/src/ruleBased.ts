@@ -11,6 +11,7 @@ import {
   type TradeTerms,
 } from '@bokoboko/engine';
 import type { Agent, TradeRequest } from './agent.js';
+import { DEFAULT_STRATEGY, type Goal, type Strategy } from './strategy.js';
 import {
   addCounts,
   missingCards,
@@ -23,9 +24,6 @@ import {
   vertexPips,
   visiblePoints,
 } from './evaluate.js';
-
-/** 次に何を作るか */
-type Goal = 'city' | 'settlement' | 'road' | 'devCard';
 
 /** 1手番あたりの国内交易の提案の上限（人間を待たせすぎないため） */
 const MAX_PROPOSALS_PER_TURN = 2;
@@ -46,8 +44,12 @@ export class RuleBasedAgent implements Agent {
   /** この手番に出した提案（同じ提案を繰り返さないため） */
   private proposals: { turn: number; tried: Set<string> } = { turn: -1, tried: new Set() };
 
-  constructor(seed: string) {
+  /** 方針（配置の重みと手番中の優先度）。既定はこれまでの標準AIと同じ */
+  readonly strategy: Strategy;
+
+  constructor(seed: string, strategy: Strategy = DEFAULT_STRATEGY) {
     this.rng = createRng(`rule-based:${seed}`);
+    this.strategy = strategy;
   }
 
   decide(view: PlayerView, legal: readonly Action[]): Action {
@@ -67,7 +69,7 @@ export class RuleBasedAgent implements Agent {
       case 'moveRobber':
         return this.moveRobber(view, legal);
       case 'roadBuilding':
-        return this.bestBy(of(legal, 'buildRoad'), (a) => roadValue(view, a.edge));
+        return this.bestBy(of(legal, 'buildRoad'), (a) => roadValue(view, a.edge, this.strategy.placement));
       case 'main':
         return this.main(view, legal);
       case 'negotiating':
@@ -82,9 +84,13 @@ export class RuleBasedAgent implements Agent {
   // -------------------------------------------------------------------------
 
   private setup(view: PlayerView, legal: readonly Action[]): Action | undefined {
+    const w = this.strategy.placement;
     const settlements = of(legal, 'placeSettlement');
-    if (settlements.length > 0) return this.bestBy(settlements, (a) => settlementValue(view, a.vertex, true));
-    return this.bestBy(of(legal, 'placeRoad'), (a) => roadValue(view, a.edge));
+    if (settlements.length > 0) {
+      if (this.strategy.randomPlacement) return settlements[this.rng.int(settlements.length)];
+      return this.bestBy(settlements, (a) => settlementValue(view, a.vertex, true, w));
+    }
+    return this.bestBy(of(legal, 'placeRoad'), (a) => roadValue(view, a.edge, w));
   }
 
   // -------------------------------------------------------------------------
@@ -93,7 +99,7 @@ export class RuleBasedAgent implements Agent {
 
   private preRoll(view: PlayerView, legal: readonly Action[]): Action | undefined {
     const knight = of(legal, 'playKnight')[0];
-    if (knight && this.robberBlocksMe(view)) return knight;
+    if (knight && (this.robberBlocksMe(view) || this.strategy.play.knights === 'eager')) return knight;
     return of(legal, 'rollDice')[0];
   }
 
@@ -154,7 +160,8 @@ export class RuleBasedAgent implements Agent {
     // 1. 勝利点に直結する建設
     const city = this.bestBy(of(legal, 'buildCity'), (a) => vertexPips(view, a.vertex));
     if (city) return city;
-    const settlement = this.bestBy(of(legal, 'buildSettlement'), (a) => settlementValue(view, a.vertex));
+    const w = this.strategy.placement;
+    const settlement = this.bestBy(of(legal, 'buildSettlement'), (a) => settlementValue(view, a.vertex, false, w));
     if (settlement) return settlement;
 
     const goal = this.goal(view);
@@ -167,7 +174,7 @@ export class RuleBasedAgent implements Agent {
 
     // 3. 目標が道なら道を伸ばす（開拓地の候補地に向かって）
     if (goal === 'road') {
-      const road = this.bestBy(of(legal, 'buildRoad'), (a) => roadValue(view, a.edge));
+      const road = this.bestBy(of(legal, 'buildRoad'), (a) => roadValue(view, a.edge, w));
       if (road) return road;
     }
 
@@ -193,17 +200,19 @@ export class RuleBasedAgent implements Agent {
     }
 
     // 7. 余力があれば道や発展カードにも使う
-    if (missing === 0 && goal !== 'road') {
+    if (missing === 0 && goal !== 'road' && this.strategy.play.buyDevWhenSpare) {
       const extra = of(legal, 'buyDevCard')[0];
       if (extra) return extra;
     }
-    const spareRoad = this.bestBy(of(legal, 'buildRoad'), (a) => roadValue(view, a.edge));
-    if (spareRoad && reachableSpots(view).length < 2 && roadValue(view, spareRoad.edge) > 0) return spareRoad;
+    const spareRoad = this.bestBy(of(legal, 'buildRoad'), (a) => roadValue(view, a.edge, w));
+    if (spareRoad && reachableSpots(view).length < 2 && roadValue(view, spareRoad.edge, w) > 0) return spareRoad;
 
     return of(legal, 'endTurn')[0];
   }
 
-  /** 次に作るもの。足りない枚数が少ないもの優先、同数なら 開拓地 > 都市 > 道 > 発展カード */
+  /**
+   * 次に作るもの。「足りない枚数 + 方針の補正」が少ないもの優先、同じなら 開拓地 > 都市 > 道 > 発展カード
+   */
   private goal(view: PlayerView): Goal {
     const { me } = view;
     const hasSettlement = view.buildings.some((b) => b?.owner === view.seat && b.kind === 'settlement');
@@ -215,11 +224,9 @@ export class RuleBasedAgent implements Agent {
     if (view.devDeckCount > 0) options.push('devCard');
     if (options.length === 0) return 'devCard';
     const order: Goal[] = ['settlement', 'city', 'road', 'devCard'];
-    return options.sort(
-      (a, b) =>
-        missingCards(me.hand, this.costOf(view, a)) - missingCards(me.hand, this.costOf(view, b)) ||
-        order.indexOf(a) - order.indexOf(b),
-    )[0]!;
+    const bias = this.strategy.play.goalBias;
+    const score = (g: Goal): number => missingCards(me.hand, this.costOf(view, g)) + bias[g];
+    return options.sort((a, b) => score(a) - score(b) || order.indexOf(a) - order.indexOf(b))[0]!;
   }
 
   private costOf(view: PlayerView, goal: Goal): Partial<ResourceCounts> {
@@ -239,6 +246,7 @@ export class RuleBasedAgent implements Agent {
   ): Action | undefined {
     // 騎士: 盗賊に塞がれているか、最大騎士力を取れるなら
     const knight = of(legal, 'playKnight')[0];
+    if (knight && this.strategy.play.knights === 'eager') return knight;
     if (knight) {
       const mine = view.me.playedKnights + 1;
       const best = Math.max(0, ...view.opponents.map((o) => o.playedKnights));

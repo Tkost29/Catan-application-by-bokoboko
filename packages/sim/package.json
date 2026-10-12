@@ -1,0 +1,21 @@
+{
+  "name": "@bokoboko/sim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI同士の大量対戦で、初期配置と手番中の方針の勝ちやすさを調べる",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "sim": "node scripts/run.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bokoboko/ai": "0.1.0",
+    "@bokoboko/engine": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

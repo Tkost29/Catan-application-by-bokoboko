@@ -9,6 +9,7 @@ packages/
   engine/   ルールエンジン（UI・通信に依存しない純粋なゲームロジック）
   ai/       AIプレイヤー（PlayerView と合法手だけを見て1手を選ぶ）
   client/   ブラウザで遊ぶ画面（人間1人 + AI 3人のローカル対戦）
+  sim/      AI同士の大量対戦で、初期配置と手番中の方針の勝ちやすさを調べる
 ```
 
 今後 `server` パッケージ（オンライン対戦）を追加していく。
@@ -66,6 +67,20 @@ UI からはそれ以外の条件も `apply` にそのまま渡せる。
 
 新しい AI は `packages/ai/src/registry.ts` に1行追加すると、難易度として選べるようになる。
 `playMatch` で AI 同士を対戦させて強さを比べられる。
+
+## シミュレーション（戦略の分析）
+
+```sh
+npm run build -w @bokoboko/sim
+npm run sim -w @bokoboko/sim -- baseline --games 4000 --out results/baseline.jsonl
+npm run sim -w @bokoboko/sim -- grid --games 1200 --out results/grid.jsonl
+python3 packages/sim/analysis/analyze.py --baseline "packages/sim/results/baseline*.jsonl" --grid "packages/sim/results/grid*.jsonl"
+```
+
+- `baseline`: 4人とも標準AI（手番順の有利不利、配置の特徴と勝敗の関係）
+- `grid`: 1席だけ方針（配置7種 × 手番中4種）を変え、残り3席は標準AI。盤面は全方針で共通
+- `mixed`: grid と同じだが、相手3席の方針もランダム
+- 方針のプリセットは `packages/ai/src/strategy.ts`。分析には Python（numpy・pandas・scikit-learn）を使う
 
 ## 開発
 

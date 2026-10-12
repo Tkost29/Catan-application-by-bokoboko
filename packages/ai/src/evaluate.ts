@@ -22,13 +22,26 @@ export function pips(n: number | null): number {
   return 6 - Math.abs(7 - n);
 }
 
-/** 資源ごとの基本的な重み（序盤から終盤まで使う小麦・鉱石をやや重く） */
-const RESOURCE_WEIGHT: Readonly<Record<Resource, number>> = {
-  wood: 1,
-  brick: 1,
-  sheep: 0.8,
-  wheat: 1.1,
-  ore: 1.1,
+/**
+ * 開拓地の場所の評価の重み。AI の「配置の方針」はこの値の違いで表す。
+ */
+export interface PlacementWeights {
+  /** 資源ごとの重み（出やすさに掛ける） */
+  readonly resource: Readonly<Record<Resource, number>>;
+  /** まだ持っていない資源の種類1つあたりのボーナス */
+  readonly diversity: number;
+  /** 港の価値に掛ける倍率（0 なら港を無視） */
+  readonly port: number;
+  /** 序盤（初期配置）に木材・レンガに掛ける倍率 */
+  readonly earlyWoodBrick: number;
+}
+
+/** 標準の重み（序盤から終盤まで使う小麦・鉱石をやや重く） */
+export const DEFAULT_PLACEMENT: PlacementWeights = {
+  resource: { wood: 1, brick: 1, sheep: 0.8, wheat: 1.1, ore: 1.1 },
+  diversity: 1.5,
+  port: 1,
+  earlyWoodBrick: 1.2,
 };
 
 /** 自分の建物から見込める、資源ごとの生産量（pips の合計。都市は2倍、盗賊のヘックスは除く） */
@@ -59,7 +72,12 @@ export function vertexPips(view: PlayerView, v: VertexId): number {
  * 開拓地を置く場所としての価値。
  * 生産力 × 資源の重み + まだ持っていない資源の種類のボーナス + 港のボーナス
  */
-export function settlementValue(view: PlayerView, v: VertexId, early = false): number {
+export function settlementValue(
+  view: PlayerView,
+  v: VertexId,
+  early = false,
+  weights: PlacementWeights = DEFAULT_PLACEMENT,
+): number {
   const topology = topologyOf(view);
   const mine = productionBySeat(view, view.seat);
   let value = 0;
@@ -69,16 +87,16 @@ export function settlementValue(view: PlayerView, v: VertexId, early = false): n
     if (!r) continue;
     const p = pips(view.board.numbers[h] ?? null) * (h === view.robberHex ? 0.5 : 1);
     // 序盤は道と開拓地に使う木・レンガを重視
-    const w = RESOURCE_WEIGHT[r] * (early && (r === 'wood' || r === 'brick') ? 1.2 : 1);
+    const w = weights.resource[r] * (early && (r === 'wood' || r === 'brick') ? weights.earlyWoodBrick : 1);
     value += p * w;
     if (mine[r] === 0) newTypes.add(r);
   }
-  value += newTypes.size * 1.5;
+  value += newTypes.size * weights.diversity;
 
   for (const port of view.board.ports) {
     if (!topology.edgeVertices[port.edge]!.includes(v)) continue;
-    if (port.kind === 'generic') value += 1;
-    else value += mine[port.kind] >= 5 ? 2.5 : 0.8;
+    if (port.kind === 'generic') value += 1 * weights.port;
+    else value += (mine[port.kind] >= 5 ? 2.5 : 0.8) * weights.port;
   }
   return value;
 }
@@ -102,7 +120,7 @@ export function reachableSpots(view: PlayerView): VertexId[] {
  * 辺 edge に道を置いたとき、その先2本以内で届く開拓地候補の最高価値。
  * 道をどちらに伸ばすかの判断に使う。
  */
-export function roadValue(view: PlayerView, edge: number): number {
+export function roadValue(view: PlayerView, edge: number, weights: PlacementWeights = DEFAULT_PLACEMENT): number {
   const topology = topologyOf(view);
   const ends = topology.edgeVertices[edge]!;
   let best = 0;
@@ -110,9 +128,9 @@ export function roadValue(view: PlayerView, edge: number): number {
     // 相手の建物の先には伸ばせない
     const b = view.buildings[end];
     if (b && b.owner !== view.seat) continue;
-    if (isOpenSpot(view, end)) best = Math.max(best, settlementValue(view, end) + 1);
+    if (isOpenSpot(view, end)) best = Math.max(best, settlementValue(view, end, false, weights) + 1);
     for (const n of topology.vertexNeighbors[end]!) {
-      if (isOpenSpot(view, n)) best = Math.max(best, settlementValue(view, n));
+      if (isOpenSpot(view, n)) best = Math.max(best, settlementValue(view, n, false, weights));
     }
   }
   return best;
