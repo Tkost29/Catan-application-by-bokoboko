@@ -17,3 +17,4 @@ export {
   type Strategy,
 } from './strategy.js';
 export { DEFAULT_PLACEMENT, type PlacementWeights } from './evaluate.js';
+export { boardScarcity, handShare, leaderGap, threatOf, threats, usefulStealChance } from './threat.js';

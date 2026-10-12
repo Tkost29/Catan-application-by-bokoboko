@@ -16,6 +16,19 @@ export interface PlayStyle {
   readonly buyDevWhenSpare: boolean;
   /** 騎士の使い方。standard: 盗賊に塞がれたときと最大騎士力を取れるとき / eager: 持っていれば毎手番使う */
   readonly knights: 'standard' | 'eager';
+  /**
+   * 盗賊の置き方。
+   * basic: 見えている勝利点の高い相手の、出やすいヘックス
+   * threat: 脅威度（点数・生産力・港・発展カード）で相手を見て、突出した相手を優先し、
+   *         欲しい資源を持っていそうな相手から奪い、盤面で希少な資源のヘックスを止める
+   */
+  readonly robber: 'basic' | 'threat';
+  /**
+   * 交渉で相手を助けないための基準。
+   * basic: あと2点以内で勝ちそうな相手とは交換しない
+   * threat: さらに、脅威度が突出している相手（自分より強い）とも交換しない。提案は脅威度の低い相手から
+   */
+  readonly tradeGuard: 'basic' | 'threat';
 }
 
 /** AI の方針 = 配置の方針 + 手番中の方針 */
@@ -30,6 +43,8 @@ export const DEFAULT_PLAY: PlayStyle = {
   goalBias: { settlement: 0, city: 0, road: 0, devCard: 0 },
   buyDevWhenSpare: true,
   knights: 'standard',
+  robber: 'basic',
+  tradeGuard: 'basic',
 };
 
 export const DEFAULT_STRATEGY: Strategy = {
@@ -74,15 +89,15 @@ export const PLAY_PRESETS: Readonly<Record<PlayPreset, { label: string; style: P
   standard: { label: '標準', style: DEFAULT_PLAY },
   expand: {
     label: '拡張優先（開拓地・道）',
-    style: { goalBias: { settlement: -1.5, road: -1, city: 1, devCard: 2 }, buyDevWhenSpare: false, knights: 'standard' },
+    style: { ...DEFAULT_PLAY, goalBias: { settlement: -1.5, road: -1, city: 1, devCard: 2 }, buyDevWhenSpare: false },
   },
   city: {
     label: '都市優先',
-    style: { goalBias: { settlement: 0.5, road: 1, city: -1.5, devCard: 1 }, buyDevWhenSpare: true, knights: 'standard' },
+    style: { ...DEFAULT_PLAY, goalBias: { settlement: 0.5, road: 1, city: -1.5, devCard: 1 } },
   },
   devCard: {
     label: '発展カード重視',
-    style: { goalBias: { settlement: 0.5, road: 1, city: 0, devCard: -2 }, buyDevWhenSpare: true, knights: 'eager' },
+    style: { ...DEFAULT_PLAY, goalBias: { settlement: 0.5, road: 1, city: 0, devCard: -2 }, knights: 'eager' },
   },
 };
 

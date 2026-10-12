@@ -11,7 +11,17 @@ import {
 } from '@bokoboko/engine';
 import { describe, expect, it } from 'vitest';
 import { settlementValue } from '../src/evaluate.js';
-import { AI_LEVELS, createAgent, playMatch, RandomAgent, RuleBasedAgent, type Agent } from '../src/index.js';
+import {
+  AI_LEVELS,
+  createAgent,
+  DEFAULT_STRATEGY,
+  leaderGap,
+  playMatch,
+  RandomAgent,
+  RuleBasedAgent,
+  threatOf,
+  type Agent,
+} from '../src/index.js';
 
 /** decide が必ず legal の中から選んでいるかを見張るラッパー */
 class Checked implements Agent {
@@ -184,5 +194,62 @@ describe('交換の募集への返答', () => {
     const players = base.players.map((p) => (p.seat === 1 ? { ...p, hand: { ...emptyResources(), ore: 2, sheep: 0 } } : p));
     const s: GameState = { ...base, buildings, players, phase: { kind: 'main' } };
     expect(agent.answerRequest(toPlayerView(s, 1), { from: 0, want: { ore: 1 }, offer: { sheep: 1, wheat: 1 } })).toBeNull();
+  });
+});
+
+describe('脅威度（盗賊と交渉の改良版）', () => {
+  /** 席1と席2が同じ点数で、席1だけ生産力が高い状態 */
+  function twoEqualLeaders(): GameState {
+    const base = createGame('threat');
+    const buildings = base.buildings.slice();
+    // 生産力の高い頂点と低い頂点を選ぶ
+    const byPips = T.vertexPositions
+      .map((_, v) => ({ v, p: T.vertexHexes[v]!.reduce((s, h) => s + (base.board.numbers[h] == null ? 0 : 6 - Math.abs(7 - base.board.numbers[h]!)), 0) }))
+      .sort((a, b) => b.p - a.p);
+    const used: number[] = [];
+    const pick = (fromTop: boolean): number => {
+      const list = fromTop ? byPips : [...byPips].reverse();
+      const c = list.find(({ v }) => used.every((u) => u !== v && !T.vertexNeighbors[u]!.includes(v)))!;
+      used.push(c.v);
+      return c.v;
+    };
+    for (let i = 0; i < 3; i++) buildings[pick(true)] = { owner: 1, kind: 'settlement' };
+    for (let i = 0; i < 3; i++) buildings[pick(false)] = { owner: 2, kind: 'settlement' };
+    return { ...base, buildings, phase: { kind: 'main' }, turn: 5 };
+  }
+
+  it('点数が同じなら、生産力の高い相手のほうが脅威度が高い', () => {
+    const view = toPlayerView(twoEqualLeaders(), 0);
+    expect(threatOf(view, 1)).toBeGreaterThan(threatOf(view, 2));
+  });
+
+  it('改良版の盗賊も、自分の建物があるヘックスは避ける', () => {
+    let s = twoEqualLeaders();
+    const mine = T.vertexPositions.findIndex((_, v) => s.buildings[v] === null && T.vertexNeighbors[v]!.every((n) => s.buildings[n] === null));
+    const buildings = s.buildings.slice();
+    buildings[mine] = { owner: 0, kind: 'settlement' };
+    s = { ...s, buildings, phase: { kind: 'moveRobber', returnTo: 'main' } };
+    const agent = new RuleBasedAgent('t', { ...DEFAULT_STRATEGY, play: { ...DEFAULT_STRATEGY.play, robber: 'threat' } });
+    const a = agent.decide(toPlayerView(s, 0), legalActions(s, 0));
+    expect(a.type).toBe('moveRobber');
+    if (a.type === 'moveRobber') expect(T.hexVertices[a.hex]!.some((v) => s.buildings[v]?.owner === 0)).toBe(false);
+  });
+
+  it('改良版は、突出して強い相手（自分より強い）との交換に応じない', () => {
+    const s0 = twoEqualLeaders();
+    // 席1を突出させる（都市にする）
+    const buildings = s0.buildings.map((b) => (b?.owner === 1 ? { owner: 1, kind: 'city' as const } : b));
+    const bank = { ...s0.bank, ore: 18, sheep: 16, wheat: 18 };
+    const players = s0.players.map((p) =>
+      p.seat === 0 ? { ...p, hand: { ...emptyResources(), sheep: 2, wheat: 1 } } : p.seat === 1 ? { ...p, hand: { ...emptyResources(), ore: 1, sheep: 1 } } : p,
+    );
+    let s: GameState = { ...s0, buildings, bank, players, currentSeat: 1 };
+    s = apply(s, { type: 'proposeTrade', seat: 1, to: 0, terms: { give: { ore: 1 }, receive: { sheep: 1 } } });
+    const view = toPlayerView(s, 0);
+    expect(leaderGap(view, 1)).toBeGreaterThanOrEqual(1.5);
+    const basic = new RuleBasedAgent('b').decide(view, legalActions(s, 0));
+    const guarded = new RuleBasedAgent('g', { ...DEFAULT_STRATEGY, play: { ...DEFAULT_STRATEGY.play, tradeGuard: 'threat' } }).decide(view, legalActions(s, 0));
+    expect(basic.type).toBe('acceptTrade');
+    expect(guarded.type).toBe('rejectTrade');
   });
 });

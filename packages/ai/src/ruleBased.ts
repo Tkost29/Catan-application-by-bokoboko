@@ -1,6 +1,7 @@
 import {
   createRng,
   RESOURCES,
+  TERRAIN_RESOURCE,
   type Action,
   type ActionOf,
   type ActionType,
@@ -12,6 +13,7 @@ import {
 } from '@bokoboko/engine';
 import type { Agent, TradeRequest } from './agent.js';
 import { DEFAULT_STRATEGY, type Goal, type Strategy } from './strategy.js';
+import { boardScarcity, leaderGap, threats, usefulStealChance } from './threat.js';
 import {
   addCounts,
   missingCards,
@@ -134,6 +136,7 @@ export class RuleBasedAgent implements Agent {
   // -------------------------------------------------------------------------
 
   private moveRobber(view: PlayerView, legal: readonly Action[]): Action | undefined {
+    if (this.strategy.play.robber === 'threat') return this.moveRobberByThreat(view, legal);
     const topology = topologyOf(view);
     const handCount = (seat: number): number => view.opponents.find((o) => o.seat === seat)?.handCount ?? 0;
     return this.bestBy(of(legal, 'moveRobber'), (a) => {
@@ -148,6 +151,46 @@ export class RuleBasedAgent implements Agent {
         else score += weight * p * (1 + 0.3 * visiblePoints(view, b.owner));
       }
       if (a.victim !== null) score += 2 + visiblePoints(view, a.victim) + 0.2 * handCount(a.victim);
+      return score;
+    });
+  }
+
+  /**
+   * 脅威度を使う盗賊の置き方。
+   * 1. 欲しい資源を持っていそうな相手から奪い、盤面で希少な資源のヘックスを止める
+   * 2. 複数の相手が接するヘックスは、止める価値がその分足し上がる
+   * 3. 脅威度が突出している相手を優先して止める（点数が同じでも、生産力や港で強い相手）
+   */
+  private moveRobberByThreat(view: PlayerView, legal: readonly Action[]): Action | undefined {
+    const topology = topologyOf(view);
+    const all = threats(view);
+    const mean = view.opponents.reduce((s, o) => s + all[o.seat]!, 0) / Math.max(1, view.opponents.length);
+    const weightOf = (seat: number): number => {
+      const relative = all[seat]! / Math.max(1, mean);
+      return relative * (1 + 0.5 * leaderGap(view, seat, all));
+    };
+    const scarcity = boardScarcity(view);
+    const need = this.costOf(view, this.goal(view));
+    const missing: Partial<ResourceCounts> = {};
+    for (const r of RESOURCES) missing[r] = Math.max(0, (need[r] ?? 0) - view.me.hand[r]);
+    const handCount = (seat: number): number => view.opponents.find((o) => o.seat === seat)?.handCount ?? 0;
+
+    return this.bestBy(of(legal, 'moveRobber'), (a) => {
+      const n = view.board.numbers[a.hex] ?? null;
+      const p = n === null ? 0 : 6 - Math.abs(7 - n);
+      const r = TERRAIN_RESOURCE[view.board.terrains[a.hex]!];
+      const rare = r ? scarcity[r] : 0;
+      let score = 0;
+      for (const v of topology.hexVertices[a.hex]!) {
+        const b = view.buildings[v];
+        if (!b) continue;
+        const weight = b.kind === 'city' ? 2 : 1;
+        if (b.owner === view.seat) score -= 100;
+        else score += weight * p * rare * weightOf(b.owner);
+      }
+      if (a.victim !== null && handCount(a.victim) > 0) {
+        score += 1 + 6 * usefulStealChance(view, a.victim, missing) + 1.5 * weightOf(a.victim) + 0.15 * handCount(a.victim);
+      }
       return score;
     });
   }
@@ -290,11 +333,14 @@ export class RuleBasedAgent implements Agent {
       const receive = singleResource(a.terms.receive);
       if (!give || !receive || totalCards(a.terms.give) !== 1 || totalCards(a.terms.receive) !== 1) return false;
       if (visiblePoints(view, a.to) >= target - 2) return false; // 勝ちそうな相手は助けない
+      if (this.helpsLeader(view, a.to)) return false; // 突出して強い相手は助けない
       if (this.proposals.tried.has(key(a))) return false; // 断られた提案は繰り返さない
       return this.surplus(view, give, cost) > 0 && (cost[receive] ?? 0) > view.me.hand[receive];
     });
     // 相手は点数の低い人を少し優先しつつ、毎回同じ人に偏らないようにばらけさせる
-    const choice = this.bestBy(candidates, (a) => -0.5 * visiblePoints(view, a.to) + 3 * this.rng.next());
+    const strength = (seat: number): number =>
+      this.strategy.play.tradeGuard === 'threat' ? threats(view)[seat]! : visiblePoints(view, seat);
+    const choice = this.bestBy(candidates, (a) => -0.5 * strength(a.to) + 3 * this.rng.next());
     if (choice) this.proposals.tried.add(key(choice));
     return choice;
   }
@@ -323,7 +369,18 @@ export class RuleBasedAgent implements Agent {
    */
   private wouldAccept(view: PlayerView, partner: number, terms: TradeTerms, iAmProposer: boolean): boolean {
     if (visiblePoints(view, partner) >= view.config.victoryPointsToWin - 2) return false;
+    if (this.helpsLeader(view, partner)) return false;
     return this.tradeGain(view, terms, iAmProposer) > 0;
+  }
+
+  /**
+   * 交換すると突出した相手を助けてしまうか（tradeGuard が threat のときだけ）。
+   * 相手の中で脅威度が一番高く、2番目より 1.5 以上離れていて、しかも自分より強い相手なら助けない。
+   */
+  private helpsLeader(view: PlayerView, partner: number): boolean {
+    if (this.strategy.play.tradeGuard !== 'threat') return false;
+    const all = threats(view);
+    return leaderGap(view, partner, all) >= 1.5 && all[partner]! > all[view.seat]!;
   }
 
   /**
