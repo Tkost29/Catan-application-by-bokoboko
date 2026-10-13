@@ -34,6 +34,12 @@ export interface PlacementWeights {
   readonly port: number;
   /** 序盤（初期配置）に木材・レンガに掛ける倍率 */
   readonly earlyWoodBrick: number;
+  /**
+   * 盤面での資源の少なさをどれだけ重みに反映するか（省略時 0 = 反映しない）。
+   * 資源 r の重みに (盤面の平均的な量 / この盤面での r の量) ^ scarcity を掛ける。
+   * 例: 鉱石が平均の 2/3 しかない盤面で scarcity 1 なら、鉱石の重みは 1.5 倍
+   */
+  readonly scarcity?: number;
 }
 
 /** 標準の重み（序盤から終盤まで使う小麦・鉱石をやや重く） */
@@ -43,6 +49,30 @@ export const DEFAULT_PLACEMENT: PlacementWeights = {
   port: 1,
   earlyWoodBrick: 1.2,
 };
+
+/**
+ * 盤面での資源ごとの少なさの倍率（平均的な量 / この盤面の量）。
+ * 「平均的な量」はその資源のタイル枚数 × 数字チップ1枚あたりの平均の出やすさ。
+ */
+export function scarcityFactors(view: PlayerView): Record<Resource, number> {
+  const supply: ResourceCounts = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
+  const tiles: ResourceCounts = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
+  let total = 0;
+  let numbered = 0;
+  view.board.terrains.forEach((t, h) => {
+    const r = TERRAIN_RESOURCE[t];
+    const p = pips(view.board.numbers[h] ?? null);
+    if (!r) return;
+    supply[r] += p;
+    tiles[r] += 1;
+    total += p;
+    numbered += 1;
+  });
+  const avg = numbered > 0 ? total / numbered : 0;
+  const out = {} as Record<Resource, number>;
+  for (const r of RESOURCES) out[r] = supply[r] > 0 ? (tiles[r] * avg) / supply[r] : 1;
+  return out;
+}
 
 /** 自分の建物から見込める、資源ごとの生産量（pips の合計。都市は2倍、盗賊のヘックスは除く） */
 export function productionBySeat(view: PlayerView, seat: Seat): ResourceCounts {
@@ -80,6 +110,9 @@ export function settlementValue(
 ): number {
   const topology = topologyOf(view);
   const mine = productionBySeat(view, view.seat);
+  const k = weights.scarcity ?? 0;
+  const scarce = k !== 0 ? scarcityFactors(view) : null;
+  const factor = (r: Resource): number => (scarce ? scarce[r] ** k : 1);
   let value = 0;
   const newTypes = new Set<Resource>();
   for (const h of topology.vertexHexes[v]!) {
@@ -88,10 +121,10 @@ export function settlementValue(
     const p = pips(view.board.numbers[h] ?? null) * (h === view.robberHex ? 0.5 : 1);
     // 序盤は道と開拓地に使う木・レンガを重視
     const w = weights.resource[r] * (early && (r === 'wood' || r === 'brick') ? weights.earlyWoodBrick : 1);
-    value += p * w;
+    value += p * w * factor(r);
     if (mine[r] === 0) newTypes.add(r);
   }
-  value += newTypes.size * weights.diversity;
+  for (const r of newTypes) value += weights.diversity * factor(r);
 
   for (const port of view.board.ports) {
     if (!topology.edgeVertices[port.edge]!.includes(v)) continue;

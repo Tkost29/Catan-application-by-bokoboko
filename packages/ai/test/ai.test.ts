@@ -4,13 +4,14 @@ import {
   emptyResources,
   legalActions,
   STANDARD_TOPOLOGY as T,
+  TERRAIN_RESOURCE,
   toPlayerView,
   type Action,
   type GameState,
   type PlayerView,
 } from '@bokoboko/engine';
 import { describe, expect, it } from 'vitest';
-import { settlementValue } from '../src/evaluate.js';
+import { DEFAULT_PLACEMENT, pips, scarcityFactors, settlementValue } from '../src/evaluate.js';
 import {
   AI_LEVELS,
   createAgent,
@@ -251,5 +252,35 @@ describe('脅威度（盗賊と交渉の改良版）', () => {
     const guarded = new RuleBasedAgent('g', { ...DEFAULT_STRATEGY, play: { ...DEFAULT_STRATEGY.play, tradeGuard: 'threat' } }).decide(view, legalActions(s, 0));
     expect(basic.type).toBe('acceptTrade');
     expect(guarded.type).toBe('rejectTrade');
+  });
+});
+
+describe('盤面での資源の少なさ', () => {
+  it('少ない資源ほど倍率が大きく、量の加重平均はおよそ1になる', () => {
+    const view = toPlayerView(createGame('scarcity'), 0);
+    const f = scarcityFactors(view);
+    const supply = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
+    const tiles = { ...supply };
+    view.board.terrains.forEach((t, h) => {
+      const r = TERRAIN_RESOURCE[t];
+      if (r) {
+        supply[r] += pips(view.board.numbers[h] ?? null);
+        tiles[r] += 1;
+      }
+    });
+    const rs = Object.keys(supply) as (keyof typeof supply)[];
+    const total = rs.reduce((a, r) => a + supply[r], 0);
+    // 倍率 × 量 = 平均的な量。その合計は盤面全体の量に一致する
+    expect(rs.reduce((a, r) => a + f[r] * supply[r], 0)).toBeCloseTo(total, 6);
+    // タイル1枚あたりの量が最も少ない資源の倍率が最大
+    const thinnest = rs.reduce((a, b) => (supply[a] / tiles[a] <= supply[b] / tiles[b] ? a : b));
+    expect(f[thinnest]).toBe(Math.max(...rs.map((r) => f[r])));
+  });
+
+  it('scarcity 0（既定）では評価が変わらない', () => {
+    const view = toPlayerView(createGame('scarcity'), 0);
+    for (let v = 0; v < 54; v++) {
+      expect(settlementValue(view, v, true, { ...DEFAULT_PLACEMENT, scarcity: 0 })).toBe(settlementValue(view, v, true, DEFAULT_PLACEMENT));
+    }
   });
 });

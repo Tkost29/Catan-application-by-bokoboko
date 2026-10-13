@@ -4,6 +4,7 @@ import {
   PLAY_PRESETS,
   type Goal,
   type PlacementPreset,
+  type PlacementWeights,
   type PlayPreset,
   type PlayStyle,
   type Strategy,
@@ -47,8 +48,40 @@ export function resolvePlay(spec: string): PlayStyle {
   return { goalBias: bias, buyDevWhenSpare, knights, robber, tradeGuard };
 }
 
+/**
+ * 配置の方針を文字列から作る。
+ *   - プリセット名: standard / production / oreWheat / woodBrick / diversity / port / random
+ *   - プリセットのあとに "_" でつないだ変更:
+ *       scarcity1    盤面で少ない資源ほど重く見る（(平均的な量/この盤面の量)^1 を重みに掛ける）
+ *       data         資源の重みを勝敗データの点数（hex_value.py）に合わせる
+ *     例: "standard_scarcity1", "standard_data_scarcity0.5"
+ */
+export function resolvePlacement(spec: string): { weights: PlacementWeights; random: boolean } {
+  const [name, ...tokens] = spec.split('_');
+  if (!name || !(name in PLACEMENT_PRESETS)) throw new Error(`unknown placement: ${spec}`);
+  const preset = PLACEMENT_PRESETS[name as PlacementPreset];
+  let weights: PlacementWeights = preset.weights;
+  for (const token of tokens) {
+    const m = /^scarcity(\d+(?:\.\d+)?)$/.exec(token);
+    if (m) weights = { ...weights, scarcity: Number(m[1]) };
+    else if (token === 'data') weights = { ...weights, ...DATA_WEIGHTS };
+    else throw new Error(`unknown placement token: ${token}`);
+  }
+  return { weights, random: preset.random === true };
+}
+
+/**
+ * 勝敗データから推定した点数（5・9 の1ヘックス、木材の出やすさ1つ = 1点）に合わせた重み。
+ * 出やすさ1つあたり: 木材 1.0 / レンガ 1.05 / 羊毛 1.08 / 小麦 1.3 / 鉱石 1.43。
+ * 初めての資源の上乗せは平均で出やすさ約4つ分
+ */
+const DATA_WEIGHTS: Partial<PlacementWeights> = {
+  resource: { wood: 1, brick: 1.05, sheep: 1.08, wheat: 1.3, ore: 1.43 },
+  diversity: 4,
+  earlyWoodBrick: 1,
+};
+
 export function resolveStrategy(placement: string, play: string): Strategy {
-  if (!(placement in PLACEMENT_PRESETS)) throw new Error(`unknown placement: ${placement}`);
-  const p = PLACEMENT_PRESETS[placement as PlacementPreset];
-  return { placement: p.weights, randomPlacement: p.random === true, play: resolvePlay(play) };
+  const p = resolvePlacement(placement);
+  return { placement: p.weights, randomPlacement: p.random, play: resolvePlay(play) };
 }
