@@ -56,6 +56,10 @@ describe('ローカル対戦', () => {
       expect(game.state.winner).not.toBeNull();
       const panel = renderPanel(game, initialUi());
       expect(panel).toContain('もう一度遊ぶ');
+      // 「もう一度遊ぶ」を押したら、新しいゲームの設定画面が出る
+      const dialog = renderPanel(game, { ...initialUi(), dialog: { kind: 'newGame' } });
+      expect(dialog).toContain('新しいゲーム');
+      expect(dialog).toContain('newGame:start');
       // 終了後は伏せていた勝利点カードも含めて10点以上
       expect(game.points(game.state.winner!)).toBeGreaterThanOrEqual(10);
     }

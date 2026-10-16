@@ -91,6 +91,9 @@ function renderActions(game: LocalGame, view: PlayerView, legal: readonly Action
   const parts: string[] = [];
   const phase = view.phase;
 
+  // 新しいゲームの設定画面は、勝負がついた後でも結果表示より優先して出す
+  if (ui.dialog.kind === 'newGame') return section('actions', renderDialog(game, view, legal, ui));
+
   if (phase.kind === 'gameOver') {
     const w = view.winner!;
     const hidden = game.hiddenPointCards(w);
