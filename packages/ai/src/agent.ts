@@ -33,4 +33,4 @@ export interface Agent {
 }
 
 /** 難易度（席ごとに設定する） */
-export type AiLevel = 0 | 1;
+export type AiLevel = 0 | 1 | 2;

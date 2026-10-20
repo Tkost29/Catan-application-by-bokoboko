@@ -135,10 +135,11 @@ describe('ルールベースAIの判断', () => {
 });
 
 describe('難易度の登録', () => {
-  it('難易度0はランダム、1はルールベース', () => {
+  it('難易度0はランダム、1はルールベース、2は学習AI', () => {
     expect(createAgent(0, 's').name).toBe('random');
     expect(createAgent(1, 's').name).toBe('rule-based');
-    expect(Object.keys(AI_LEVELS)).toEqual(['0', '1']);
+    expect(createAgent(2, 's').name).toBe('learned');
+    expect(Object.keys(AI_LEVELS)).toEqual(['0', '1', '2']);
   });
 });
 

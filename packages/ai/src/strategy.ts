@@ -47,6 +47,19 @@ export const DEFAULT_PLAY: PlayStyle = {
   tradeGuard: 'basic',
 };
 
+/**
+ * 勝敗データから推定した点数表に合わせた配置の重み + 盤面で少ない資源を少し重く見る補正。
+ * シミュレーションで標準より勝率が約2.7ポイント高かった（sim の "standard_data_scarcity0.5"）。
+ * 学習AI（難易度2）の初期配置に使う。
+ */
+export const IMPROVED_PLACEMENT: PlacementWeights = {
+  resource: { wood: 1, brick: 1.05, sheep: 1.08, wheat: 1.3, ore: 1.43 },
+  diversity: 4,
+  port: 1,
+  earlyWoodBrick: 1,
+  scarcity: 0.5,
+};
+
 export const DEFAULT_STRATEGY: Strategy = {
   placement: DEFAULT_PLACEMENT,
   randomPlacement: false,

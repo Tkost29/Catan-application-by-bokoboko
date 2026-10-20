@@ -1,5 +1,7 @@
 import type { Agent, AiLevel } from './agent.js';
 import { RandomAgent } from './random.js';
+import { LearnedAgent } from './learned/agent.js';
+import { VALUE_MODEL } from './learned/weights.js';
 import { RuleBasedAgent } from './ruleBased.js';
 
 /**
@@ -9,6 +11,7 @@ import { RuleBasedAgent } from './ruleBased.js';
 export const AI_LEVELS: Readonly<Record<AiLevel, { readonly label: string; readonly create: (seed: string) => Agent }>> = {
   0: { label: 'ランダム', create: (seed) => new RandomAgent(seed) },
   1: { label: 'ふつう（ルールベース）', create: (seed) => new RuleBasedAgent(seed) },
+  2: { label: 'つよい（学習）', create: (seed) => new LearnedAgent(seed, VALUE_MODEL) },
 };
 
 /** 既定の難易度（空き席の自動補充に使う） */

@@ -1,4 +1,4 @@
-import type { AiLevel } from '@bokoboko/ai';
+import { AI_LEVELS, DEFAULT_AI_LEVEL, type AiLevel } from '@bokoboko/ai';
 import { RESOURCES, type Action, type Resource } from '@bokoboko/engine';
 import { renderBoard } from './board.js';
 import { LocalGame, type GameSettings } from './controller.js';
@@ -39,10 +39,16 @@ const store = {
   },
 };
 
+/** 保存値や選択欄の値を難易度に直す（知らない値は「ふつう」） */
+const parseLevel = (x: string): AiLevel => {
+  const n = Number(x);
+  return (n in AI_LEVELS ? n : DEFAULT_AI_LEVEL) as AiLevel;
+};
+
 const randomSeed = (): string => Math.random().toString(36).slice(2, 10);
 
 function loadSettings(): GameSettings {
-  const levels = (store.get('aiLevels') ?? '1,1,1').split(',').map((x) => (x === '0' ? 0 : 1) as AiLevel);
+  const levels = (store.get('aiLevels') ?? '1,1,1').split(',').map(parseLevel);
   return { aiLevels: levels, randomSeat: store.get('randomSeat') !== 'false', seed: randomSeed() };
 }
 
@@ -293,7 +299,7 @@ function open(what: string): void {
 function startNewGame(): void {
   const levels = [0, 1, 2].map((i) => {
     const el = document.getElementById(`ai-${i}`) as HTMLSelectElement | null;
-    return (el?.value === '0' ? 0 : 1) as AiLevel;
+    return parseLevel(el?.value ?? '1');
   });
   const randomSeat = (document.getElementById('random-seat') as HTMLInputElement | null)?.checked ?? true;
   store.set('aiLevels', levels.join(','));
