@@ -65,6 +65,15 @@ describe('ローカル対戦', () => {
     }
   });
 
+  it('難易度「つよい」を選ぶと学習AIが入り、プレイヤー一覧にも出る', () => {
+    const game = new LocalGame({ aiLevels: [2, 1, 2], randomSeat: false, seed: 'levels' });
+    const names = game.agents.filter((a) => a !== null).map((a) => a!.name);
+    expect(names).toEqual(['learned', 'rule-based', 'learned']);
+    const panel = renderPanel(game, initialUi());
+    expect(panel).toContain('つよい');
+    expect(panel).toContain('ふつう');
+  });
+
   it('手番でない操作や不正な操作は理由を返して受け付けない', () => {
     const game = new LocalGame({ aiLevels: [1, 1, 1], randomSeat: false, seed: 'bad' });
     expect(game.act({ type: 'rollDice', seat: 0 })).not.toBeNull();

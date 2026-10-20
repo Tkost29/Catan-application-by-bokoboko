@@ -83,6 +83,9 @@ function prompt(game: LocalGame, view: PlayerView, legal: readonly Action[]): st
   }
 }
 
+/** CPU の名前（Agent.name）→ プレイヤー一覧に出す難易度の短い名前 */
+const AGENT_LABEL: Readonly<Record<string, string>> = { random: 'ランダム', 'rule-based': 'ふつう', learned: 'つよい' };
+
 // ---------------------------------------------------------------------------
 // 操作
 // ---------------------------------------------------------------------------
@@ -344,7 +347,7 @@ function renderPlayers(game: LocalGame, view: PlayerView): string {
         view.longestRoad === seat ? '<span class="badge">最長交易路</span>' : '',
         view.largestArmy === seat ? '<span class="badge">最大騎士力</span>' : '',
       ].join('');
-      const level = game.agents[seat] ? `<span class="muted">${game.agents[seat]!.name === 'random' ? 'ランダム' : 'ふつう'}</span>` : '';
+      const level = game.agents[seat] ? `<span class="muted">${AGENT_LABEL[game.agents[seat]!.name] ?? ''}</span>` : '';
       return (
         `<li class="player${seat === view.currentSeat ? ' current' : ''}">` +
         `<span class="seat-dot p${seat}" aria-hidden="true"></span>` +
