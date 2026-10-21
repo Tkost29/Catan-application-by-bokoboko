@@ -32,10 +32,12 @@ export interface UiState {
   robberHex: number | null;
   discard: Counts;
   error: string | null;
+  /** 観戦: CPU の自動進行を止めているか */
+  paused: boolean;
 }
 
 export function initialUi(): UiState {
-  return { mode: 'none', dialog: { kind: 'none' }, robberHex: null, discard: zeroCounts(), error: null };
+  return { mode: 'none', dialog: { kind: 'none' }, robberHex: null, discard: zeroCounts(), error: null, paused: false };
 }
 
 /** 人間の合法手と画面の状態から、盤面で光らせる場所を決める */

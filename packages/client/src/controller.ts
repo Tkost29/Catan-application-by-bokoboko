@@ -22,8 +22,10 @@ import { DEV_LABEL, formatCounts, RESOURCE_LABEL, seatNames, TERRAIN_LABEL } fro
 
 /** 新しいゲームの設定（ルームの設定に相当） */
 export interface GameSettings {
-  /** CPU 3席の難易度（手番順） */
+  /** CPU の難易度（手番順。ふつうは3席分、観戦なら4席分） */
   readonly aiLevels: readonly AiLevel[];
+  /** 観戦: 4席ともCPUにして、人間は見るだけ */
+  readonly spectate?: boolean;
   /** 自分の席（手番順）をランダムにするか。false なら最初の手番 */
   readonly randomSeat: boolean;
   readonly seed: string;
@@ -35,13 +37,16 @@ export interface LogEntry {
 }
 
 /**
- * ローカル対戦（人間1人 + AI 3人）の進行役。
+ * ローカル対戦（人間1人 + AI 3人、または観戦用に AI 4人）の進行役。
  * ゲーム状態はここだけが持ち、画面には人間の席の PlayerView だけを渡す。
+ * 観戦では、そのとき手番（入力待ち）の CPU の PlayerView を渡し、全員の手札も見せる。
  * サーバ版ではこの役割がサーバに移る。
  */
 export class LocalGame {
   state: GameState;
+  /** 人間の席。観戦なら -1（どの席でもない） */
   readonly humanSeat: Seat;
+  readonly spectator: boolean;
   readonly names: readonly string[];
   readonly agents: readonly (Agent | null)[];
   readonly log: LogEntry[] = [];
@@ -49,26 +54,43 @@ export class LocalGame {
   constructor(readonly settings: GameSettings) {
     this.state = createGame(settings.seed);
     const count = this.state.players.length;
-    this.humanSeat = settings.randomSeat ? createRng(`seat:${settings.seed}`).int(count) : 0;
+    this.spectator = settings.spectate === true;
+    this.humanSeat = this.spectator ? -1 : settings.randomSeat ? createRng(`seat:${settings.seed}`).int(count) : 0;
     this.names = seatNames(count, this.humanSeat);
     let cpu = 0;
     this.agents = this.state.players.map((p) =>
       p.seat === this.humanSeat ? null : createAgent(settings.aiLevels[cpu++] ?? 1, `${settings.seed}:${p.seat}`),
     );
-    this.log.push({ seat: null, text: `ゲーム開始。あなたは${this.humanSeat + 1}番手です` });
+    this.log.push({
+      seat: null,
+      text: this.spectator ? 'ゲーム開始（観戦: CPU 4人の対戦）' : `ゲーム開始。あなたは${this.humanSeat + 1}番手です`,
+    });
+  }
+
+  /** 画面に見せる席。観戦なら入力待ちの席（いなければ手番の席） */
+  viewSeat(): Seat {
+    if (!this.spectator) return this.humanSeat;
+    return awaitingSeats(this.state)[0] ?? this.state.currentSeat;
   }
 
   view(): PlayerView {
-    return toPlayerView(this.state, this.humanSeat);
+    return toPlayerView(this.state, this.viewSeat());
   }
 
-  /** 人間が今取れる操作 */
+  /** 人間が今取れる操作（観戦では何もない） */
   legal(): Action[] {
+    if (this.spectator) return [];
     return legalActions(this.state, this.humanSeat);
+  }
+
+  /** 席の手札（観戦のときだけ全員分を見せる） */
+  handOf(seat: Seat): ResourceCounts | null {
+    return this.spectator || seat === this.humanSeat ? this.state.players[seat]!.hand : null;
   }
 
   /** 人間の操作を適用する。不正なら理由を返す */
   act(action: Action): string | null {
+    if (this.spectator) return '観戦中は操作できません';
     if (action.seat !== this.humanSeat) return 'あなたの席の操作ではありません';
     const reason = validateAction(this.state, action);
     if (reason !== null) return reason;
@@ -81,7 +103,7 @@ export class LocalGame {
    * それ以外は他人から見える点（勝利点カードを除く）を返す。
    */
   points(seat: Seat): number {
-    const reveal = seat === this.humanSeat || this.state.winner !== null;
+    const reveal = this.spectator || seat === this.humanSeat || this.state.winner !== null;
     return victoryPoints(this.state, seat, reveal);
   }
 
@@ -174,7 +196,7 @@ export class LocalGame {
   private commit(action: Action): void {
     const before = this.state;
     this.state = apply(before, action);
-    for (const text of describe(before, action, this.state, this.names, this.humanSeat)) {
+    for (const text of describe(before, action, this.state, this.names, this.humanSeat, this.spectator)) {
       this.log.push({ seat: action.seat, text });
     }
     if (this.state.winner !== null && before.winner === null) {
@@ -224,6 +246,8 @@ export function describe(
   after: GameState,
   names: readonly string[],
   humanSeat: Seat,
+  /** 観戦: 奪ったカードや引いた発展カードも書く */
+  revealAll = false,
 ): string[] {
   const me = action.seat;
   const name = names[me]!;
@@ -256,7 +280,7 @@ export function describe(
       if (action.victim !== null) {
         const victim = names[action.victim]!;
         const stolen = positive(diff(before.players[me]!.hand, after.players[me]!.hand));
-        const showCard = me === humanSeat || action.victim === humanSeat;
+        const showCard = revealAll || me === humanSeat || action.victim === humanSeat;
         lines.push(`${name}が${victim}から${showCard ? formatCounts(stolen) : '1枚'}を奪った`);
       }
       return lines;
@@ -267,7 +291,7 @@ export function describe(
     }
     case 'buyDevCard': {
       const card = after.players[me]!.devCards.at(-1)?.card;
-      return [`${name}が発展カードを買った${me === humanSeat && card ? `（${DEV_LABEL[card]}）` : ''}`];
+      return [`${name}が発展カードを買った${(revealAll || me === humanSeat) && card ? `（${DEV_LABEL[card]}）` : ''}`];
     }
     case 'playKnight':
       return [`${name}が騎士を使った`];

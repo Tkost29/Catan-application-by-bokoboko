@@ -74,6 +74,31 @@ describe('ローカル対戦', () => {
     expect(panel).toContain('ふつう');
   });
 
+  it('観戦: CPU 4人だけで最後まで進み、人間は操作できず、全員の手札が見える', () => {
+    const game = new LocalGame({ aiLevels: [2, 1, 2, 1], randomSeat: true, spectate: true, seed: 'watch' });
+    expect(game.agents.every((a) => a !== null)).toBe(true);
+    expect(game.names).toEqual(['CPU 1', 'CPU 2', 'CPU 3', 'CPU 4']);
+    expect(game.legal()).toEqual([]);
+    expect(game.act({ type: 'rollDice', seat: 0 })).not.toBeNull();
+    let steps = 0;
+    while (game.state.winner === null && steps < 20_000) {
+      if (steps % 50 === 0) {
+        const panel = renderPanel(game, initialUi());
+        expect(panel).toContain('観戦中');
+        expect(panel).not.toContain('あなた');
+      }
+      expect(game.aiStep()).toBe(true);
+      steps++;
+    }
+    expect(game.state.winner).not.toBeNull();
+    const panel = renderPanel(game, initialUi());
+    expect(panel).toContain('もう一度観戦する');
+    // 観戦では引いた発展カードの中身もログに出る
+    expect(game.log.some((e) => /発展カードを買った（/.test(e.text))).toBe(true);
+    // 途中で止めた画面の「再開する」
+    expect(renderPanel(new LocalGame({ aiLevels: [1, 1, 1, 1], randomSeat: false, spectate: true, seed: 'p' }), { ...initialUi(), paused: true })).toContain('再開する');
+  });
+
   it('手番でない操作や不正な操作は理由を返して受け付けない', () => {
     const game = new LocalGame({ aiLevels: [1, 1, 1], randomSeat: false, seed: 'bad' });
     expect(game.act({ type: 'rollDice', seat: 0 })).not.toBeNull();

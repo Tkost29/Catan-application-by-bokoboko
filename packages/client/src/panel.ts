@@ -29,7 +29,7 @@ export function renderPanel(game: LocalGame, ui: UiState): string {
     renderStatus(game, view, legal),
     ui.error ? `<p class="error" role="alert">${escapeHtml(ui.error)}</p>` : '',
     renderActions(game, view, legal, ui),
-    renderHand(view),
+    renderHand(game, view),
     renderPlayers(game, view),
     renderLog(game),
   ].join('');
@@ -56,6 +56,13 @@ function prompt(game: LocalGame, view: PlayerView, legal: readonly Action[]): st
   const current = game.names[view.currentSeat]!;
   if (phase.kind === 'gameOver') return `${game.names[view.winner!]}の勝ちです。`;
   const mine = legal.length > 0;
+  if (game.spectator) {
+    if (phase.kind === 'discard') return '7 が出ました。手札が8枚以上の人が捨てています。';
+    if (phase.kind === 'negotiating') {
+      const t = phase.trade;
+      return `${game.names[t.proposer]}と${game.names[t.counterparty]}が交渉中です。`;
+    }
+  }
   switch (phase.kind) {
     case 'setup':
       if (!mine) return `${current}が初期配置をしています。`;
@@ -96,6 +103,21 @@ function renderActions(game: LocalGame, view: PlayerView, legal: readonly Action
 
   // 新しいゲームの設定画面は、勝負がついた後でも結果表示より優先して出す
   if (ui.dialog.kind === 'newGame') return section('actions', renderDialog(game, view, legal, ui));
+
+  if (game.spectator) {
+    if (phase.kind === 'gameOver') {
+      const w = view.winner!;
+      parts.push(`<p class="result">${escapeHtml(game.names[w]!)} が ${game.points(w)} 点で勝利</p>`);
+      parts.push(`<div class="row">${btn('open:newGame', 'もう一度観戦する', { primary: true })}</div>`);
+      return section('actions', parts.join(''));
+    }
+    parts.push('<p class="hint">観戦中です。CPU 4人が対戦しています。全員の手札と発展カードが見えます。</p>');
+    parts.push(
+      `<div class="row">${btn('spectate:pause', ui.paused ? '再開する' : '一時停止', { primary: true })}` +
+        `${btn('spectate:step', '1手進める', { disabled: !ui.paused })}${btn('open:newGame', '新しいゲーム')}</div>`,
+    );
+    return section('actions', parts.join(''));
+  }
 
   if (phase.kind === 'gameOver') {
     const w = view.winner!;
@@ -291,11 +313,11 @@ function renderDialog(game: LocalGame, view: PlayerView, legal: readonly Action[
       );
     case 'newGame': {
       const s = game.settings;
-      const levels = [0, 1, 2]
+      const levels = [0, 1, 2, 3]
         .map((i) => {
           const value = s.aiLevels[i] ?? 1;
           return (
-            `<label class="field" for="ai-${i}"><span>CPU ${i + 1}</span><select id="ai-${i}" data-field="ai-${i}">` +
+            `<label class="field" for="ai-${i}"><span>CPU ${i + 1}${i === 3 ? '（観戦のときだけ）' : ''}</span><select id="ai-${i}" data-field="ai-${i}">` +
             Object.entries(AI_LEVELS)
               .map(([lv, def]) => `<option value="${lv}"${Number(lv) === value ? ' selected' : ''}>${def.label}</option>`)
               .join('') +
@@ -305,7 +327,8 @@ function renderDialog(game: LocalGame, view: PlayerView, legal: readonly Action[
         .join('');
       return (
         `<h3 class="dlg-title">新しいゲーム</h3><div class="fields">${levels}</div>` +
-        `<label class="check" for="random-seat"><input type="checkbox" id="random-seat" data-field="random-seat"${s.randomSeat ? ' checked' : ''}> 手番順をランダムにする</label>` +
+        `<label class="check" for="spectate"><input type="checkbox" id="spectate" data-field="spectate"${s.spectate ? ' checked' : ''}> 自分は参加せず、CPU 4人の対戦を観戦する</label>` +
+        `<label class="check" for="random-seat"><input type="checkbox" id="random-seat" data-field="random-seat"${s.randomSeat ? ' checked' : ''}> 手番順をランダムにする（自分が参加するとき）</label>` +
         `<div class="row">${btn('newGame:start', 'はじめる', { primary: true })}${close}</div>`
       );
     }
@@ -318,7 +341,7 @@ function renderDialog(game: LocalGame, view: PlayerView, legal: readonly Action[
 // 手札・プレイヤー・ログ
 // ---------------------------------------------------------------------------
 
-function renderHand(view: PlayerView): string {
+function renderHand(game: LocalGame, view: PlayerView): string {
   const cards = RESOURCES.map(
     (r) =>
       `<li class="card r-${r}${view.me.hand[r] === 0 ? ' empty' : ''}"><span class="card-name">${RESOURCE_LABEL[r]}</span><span class="card-num">${view.me.hand[r]}</span></li>`,
@@ -332,7 +355,8 @@ function renderHand(view: PlayerView): string {
             return `<li title="${DEV_HELP[c.card]}"><b>${DEV_LABEL[c.card]}</b><span class="muted">${fresh ? '次の手番から' : DEV_HELP[c.card]}</span></li>`;
           })
           .join('')}</ul>`;
-  return `<section class="hand"><h2>あなたの手札</h2><ul class="cards-row">${cards}</ul>${dev}</section>`;
+  const title = game.spectator ? `${escapeHtml(game.names[view.seat]!)}の手札（いま操作している人）` : 'あなたの手札';
+  return `<section class="hand"><h2>${title}</h2><ul class="cards-row">${cards}</ul>${dev}</section>`;
 }
 
 function renderPlayers(game: LocalGame, view: PlayerView): string {
@@ -353,11 +377,19 @@ function renderPlayers(game: LocalGame, view: PlayerView): string {
         `<span class="seat-dot p${seat}" aria-hidden="true"></span>` +
         `<span class="pname">${escapeHtml(name)} ${level}</span>` +
         `<span class="vp" title="勝利点"><b>${game.points(seat)}</b> 点</span>` +
-        `<span class="stats">手札${handCount}・発展${devCount}・騎士${knights}</span>${badges}</li>`
+        `<span class="stats">手札${handCount}・発展${devCount}・騎士${knights}</span>${spectatorDetail(game, seat)}${badges}</li>`
       );
     })
     .join('');
   return `<section class="players"><h2>プレイヤー <span class="muted">（${view.config.victoryPointsToWin}点で勝利）</span></h2><ul>${rows}</ul></section>`;
+}
+
+/** 観戦のときだけ、手札の中身と発展カードの種類を出す */
+function spectatorDetail(game: LocalGame, seat: number): string {
+  if (!game.spectator) return '';
+  const hand = game.handOf(seat)!;
+  const devs = game.state.players[seat]!.devCards.map((c) => DEV_LABEL[c.card]).join('・');
+  return `<span class="stats">${escapeHtml(formatCounts(hand))}${devs ? `／${escapeHtml(devs)}` : ''}</span>`;
 }
 
 function renderLog(game: LocalGame): string {

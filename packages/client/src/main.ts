@@ -19,7 +19,13 @@ import {
  * ここではクリックの受け取りと AI の自動進行（少し間を置いて1手ずつ）だけを行う。
  */
 
-const SPEEDS = { slow: 900, normal: 450, fast: 120 } as const;
+/** CPU の速さ: 1回の間隔（ミリ秒）と、その1回で進める手数（とてもはやいは描き直しを減らすため数手まとめて進める） */
+const SPEEDS = {
+  slow: { delay: 900, steps: 1 },
+  normal: { delay: 450, steps: 1 },
+  fast: { delay: 120, steps: 1 },
+  turbo: { delay: 100, steps: 8 },
+} as const;
 type Speed = keyof typeof SPEEDS;
 
 const store = {
@@ -48,8 +54,9 @@ const parseLevel = (x: string): AiLevel => {
 const randomSeed = (): string => Math.random().toString(36).slice(2, 10);
 
 function loadSettings(): GameSettings {
-  const levels = (store.get('aiLevels') ?? '1,1,1').split(',').map(parseLevel);
-  return { aiLevels: levels, randomSeat: store.get('randomSeat') !== 'false', seed: randomSeed() };
+  const levels = (store.get('aiLevels') ?? '1,1,1,1').split(',').map(parseLevel);
+  const spectate = store.get('spectate') === 'true';
+  return { aiLevels: spectate ? levels : levels.slice(0, 3), randomSeat: store.get('randomSeat') !== 'false', spectate, seed: randomSeed() };
 }
 
 let game = new LocalGame(loadSettings());
@@ -92,12 +99,13 @@ function modeAction(mode: UiState['mode']): Action['type'] {
 }
 
 function scheduleAi(): void {
-  if (aiTimer !== null || game.nextAiSeat() === undefined) return;
+  if (ui.paused || aiTimer !== null || game.nextAiSeat() === undefined) return;
+  const { delay, steps } = SPEEDS[speed];
   aiTimer = setTimeout(() => {
     aiTimer = null;
-    game.aiStep();
+    for (let i = 0; i < steps && game.aiStep(); i++);
     render();
-  }, SPEEDS[speed]);
+  }, delay);
 }
 
 function act(action: Action | undefined): void {
@@ -133,6 +141,35 @@ boardEl.addEventListener('click', (e) => {
 
 // --- パネルのボタン -------------------------------------------------------
 
+/**
+ * 観戦の操作（一時停止・再開・1手進める）は押した瞬間に処理する。
+ * CPU が速く進むとパネルが描き直され、押して離すまでの間にボタンが入れ替わって click が届かないことがあるため
+ */
+panelEl.addEventListener('pointerdown', (e) => {
+  const el = (e.target as Element).closest('[data-act^="spectate:"]');
+  if (!el || (el as HTMLButtonElement).disabled) return;
+  e.preventDefault();
+  spectateControl(el.getAttribute('data-act')!.split(':')[1]!);
+});
+// キーボード（Enter・スペース）で押したときは pointerdown が来ないので click で受ける
+panelEl.addEventListener('click', (e) => {
+  const el = (e.target as Element).closest('[data-act^="spectate:"]');
+  if (el && (e as MouseEvent).detail === 0 && !(el as HTMLButtonElement).disabled) spectateControl(el.getAttribute('data-act')!.split(':')[1]!);
+});
+
+function spectateControl(what: string): void {
+  if (what === 'pause') {
+    ui.paused = !ui.paused;
+    if (ui.paused && aiTimer !== null) {
+      clearTimeout(aiTimer);
+      aiTimer = null;
+    }
+  } else if (what === 'step' && ui.paused) {
+    game.aiStep();
+  }
+  render();
+}
+
 panelEl.addEventListener('click', (e) => {
   const el = (e.target as Element).closest('[data-act]');
   if (!el || (el as HTMLButtonElement).disabled) return;
@@ -142,6 +179,8 @@ panelEl.addEventListener('click', (e) => {
   ui.error = null;
 
   switch (cmd) {
+    case 'spectate':
+      return; // 押した瞬間に pointerdown で処理済み
     case 'roll':
       return act({ type: 'rollDice', seat });
     case 'endTurn':
@@ -297,16 +336,19 @@ function open(what: string): void {
 }
 
 function startNewGame(): void {
-  const levels = [0, 1, 2].map((i) => {
+  const all = [0, 1, 2, 3].map((i) => {
     const el = document.getElementById(`ai-${i}`) as HTMLSelectElement | null;
     return parseLevel(el?.value ?? '1');
   });
   const randomSeat = (document.getElementById('random-seat') as HTMLInputElement | null)?.checked ?? true;
-  store.set('aiLevels', levels.join(','));
+  const spectate = (document.getElementById('spectate') as HTMLInputElement | null)?.checked ?? false;
+  const levels = spectate ? all : all.slice(0, 3);
+  store.set('aiLevels', all.join(','));
   store.set('randomSeat', String(randomSeat));
+  store.set('spectate', String(spectate));
   if (aiTimer !== null) clearTimeout(aiTimer);
   aiTimer = null;
-  game = new LocalGame({ aiLevels: levels, randomSeat, seed: randomSeed() });
+  game = new LocalGame({ aiLevels: levels, randomSeat, spectate, seed: randomSeed() });
   ui = initialUi();
   render();
 }
