@@ -50,6 +50,7 @@ def main() -> None:
     ap.add_argument("--gen", type=int, default=0)
     ap.add_argument("--hidden", default="64,32")
     ap.add_argument("--max-rows", type=int, default=1_500_000)
+    ap.add_argument("--drop", default="", help="使わない特徴量（カンマ区切り）")
     ap.add_argument("--from-json", help="学習せずに、この JSON の重みを --ts に書き出すだけ")
     a = ap.parse_args()
 
@@ -60,7 +61,8 @@ def main() -> None:
         return
 
     df = load(a.data)
-    feats = [c for c in df.columns if c not in ("game", "seat", "agent", "win")]
+    drop = set(filter(None, a.drop.split(",")))
+    feats = [c for c in df.columns if c not in ("game", "seat", "agent", "win") and c not in drop]
     games = df["game"].unique()
     rng = np.random.default_rng(0)
     valid_games = set(rng.choice(games, size=max(1, len(games) // 10), replace=False))

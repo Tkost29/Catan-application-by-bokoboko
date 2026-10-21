@@ -75,6 +75,24 @@ describe('学習AIの特徴量', () => {
   });
 });
 
+describe('騎士を使った後の局面', () => {
+  it('使った騎士が1枚増え、3枚目で相手より多ければ最大騎士力を取る', () => {
+    const base = midGame({});
+    const players = base.players.map((p) =>
+      p.seat === 0 ? { ...p, playedKnights: 2, devCards: [{ card: 'knight' as const, boughtTurn: 0 }] } : p,
+    );
+    const s = { ...base, players, phase: { kind: 'preRoll' as const } };
+    const view = toPlayerView(s, 0);
+    const knight = legalActions(s, 0).find((a) => a.type === 'playKnight')!;
+    expect(knight).toBeDefined();
+    const after = afterAction(asIs(view), knight)!;
+    const f = features(after);
+    expect(f[idx('knights')]).toBe(3);
+    expect(f[idx('hasLargestArmy')]).toBe(1);
+    expect(f[idx('knightsHeld')]).toBe(0);
+  });
+});
+
 describe('学習AI（難易度2）', () => {
   it('難易度2として登録されている', () => {
     expect(AI_LEVELS[2].label).toContain('学習');

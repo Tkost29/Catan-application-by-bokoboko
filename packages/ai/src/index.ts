@@ -19,6 +19,6 @@ export {
 } from './strategy.js';
 export { DEFAULT_PLACEMENT, type PlacementWeights } from './evaluate.js';
 export { boardScarcity, handShare, leaderGap, threatOf, threats, usefulStealChance } from './threat.js';
-export { FEATURE_NAMES, afterAction, asIs, features, type Hypothetical } from './learned/features.js';
+export { FEATURE_NAMES, afterAction, asIs, featureRecord, features, type FeatureName, type Hypothetical } from './learned/features.js';
 export { predict, type ValueModel } from './learned/model.js';
 export { LearnedAgent, type LearnedOptions } from './learned/agent.js';

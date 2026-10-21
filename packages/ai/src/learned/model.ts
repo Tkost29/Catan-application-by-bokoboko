@@ -16,14 +16,28 @@ export interface ValueModel {
   readonly info?: Readonly<Record<string, string | number>>;
 }
 
-export function checkModel(model: ValueModel): void {
-  const ok = model.features.length === FEATURE_NAMES.length && model.features.every((f, i) => f === FEATURE_NAMES[i]);
-  if (!ok) throw new Error('value model was trained on different features; retrain it (train_value.py)');
+const indexCache = new WeakMap<ValueModel, number[]>();
+
+/** モデルが使う特徴量の、FEATURE_NAMES の中での位置（古いモデルは一部の特徴量だけを使う） */
+function indicesOf(model: ValueModel): number[] {
+  let idx = indexCache.get(model);
+  if (!idx) {
+    idx = model.features.map((f) => (FEATURE_NAMES as readonly string[]).indexOf(f));
+    indexCache.set(model, idx);
+  }
+  return idx;
 }
 
-/** 勝率の予測（0〜1） */
+export function checkModel(model: ValueModel): void {
+  if (indicesOf(model).some((i) => i < 0)) {
+    throw new Error('value model uses features that no longer exist; retrain it (train_value.py)');
+  }
+}
+
+/** 勝率の予測（0〜1）。x は FEATURE_NAMES の順の特徴量 */
 export function predict(model: ValueModel, x: readonly number[]): number {
-  let h = x.map((v, i) => (v - model.mean[i]!) / (model.scale[i]! || 1));
+  const idx = indicesOf(model);
+  let h = idx.map((j, i) => (x[j]! - model.mean[i]!) / (model.scale[i]! || 1));
   model.layers.forEach((layer, li) => {
     const last = li === model.layers.length - 1;
     h = layer.W.map((row, j) => {

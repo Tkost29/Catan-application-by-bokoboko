@@ -10,7 +10,8 @@ import {
   type TradeTerms,
 } from '@bokoboko/engine';
 import type { Agent, TradeRequest } from '../agent.js';
-import { visiblePoints } from '../evaluate.js';
+import { topologyOf, visiblePoints } from '../evaluate.js';
+import { handShare } from '../threat.js';
 import { RuleBasedAgent } from '../ruleBased.js';
 import { DEFAULT_STRATEGY, IMPROVED_PLACEMENT } from '../strategy.js';
 import { afterAction, asIs, features, myTotalPoints, withHand, type Hypothetical } from './features.js';
@@ -28,6 +29,10 @@ export interface LearnedOptions {
   readonly forceBuild?: boolean;
   /** 交換に応じるのは、ルールベースAIも応じる（目標に近づく）ときだけにする */
   readonly tradeGate?: boolean;
+  /** 騎士・収穫をルールベースAIと同じ基準で使う（評価関数で比べない） */
+  readonly ruleDevCards?: boolean;
+  /** ルールベースAIの基準で使うとき、騎士は持っていればすぐ使う */
+  readonly eagerKnights?: boolean;
 }
 
 /**
@@ -45,6 +50,7 @@ export class LearnedAgent implements Agent {
   private readonly explore: number;
   private readonly forceBuild: boolean;
   private readonly tradeGate: boolean;
+  private readonly ruleDevCards: boolean;
   private steps = { turn: -1, n: 0 };
 
   constructor(
@@ -53,11 +59,16 @@ export class LearnedAgent implements Agent {
     options: LearnedOptions = {},
   ) {
     checkModel(model);
-    this.rule = new RuleBasedAgent(`learned:${seed}`, { ...DEFAULT_STRATEGY, placement: IMPROVED_PLACEMENT });
+    this.rule = new RuleBasedAgent(`learned:${seed}`, {
+      ...DEFAULT_STRATEGY,
+      placement: IMPROVED_PLACEMENT,
+      play: { ...DEFAULT_STRATEGY.play, knights: options.eagerKnights ? 'eager' : 'standard' },
+    });
     this.rng = createRng(`learned:${seed}`);
     this.explore = options.explore ?? 0;
     this.forceBuild = options.forceBuild ?? true;
     this.tradeGate = options.tradeGate ?? true;
+    this.ruleDevCards = options.ruleDevCards ?? true;
   }
 
   decide(view: PlayerView, legal: readonly Action[]): Action {
@@ -73,6 +84,9 @@ export class LearnedAgent implements Agent {
         return this.moveRobber(view, legal);
       case 'negotiating':
         return this.negotiate(view, legal);
+      case 'preRoll':
+        if (this.ruleDevCards) return this.rule.decide(view, legal);
+        return this.knightNow(view, legal) ?? of(legal, 'rollDice')[0] ?? this.rule.decide(view, legal);
       default:
         return this.rule.decide(view, legal);
     }
@@ -92,9 +106,12 @@ export class LearnedAgent implements Agent {
     const end = of(legal, 'endTurn')[0];
     if (this.steps.n > MAX_STEPS_PER_TURN && end) return end;
 
-    // 発展カードの使用と交換の提案はルールベースAIの判断を使う
+    // 騎士と収穫は評価関数で、独占・街道建設と交換の提案はルールベースAIの判断を使う
+    const dev = this.ruleDevCards ? undefined : (this.knightNow(view, legal) ?? this.plentyNow(view, legal));
+    if (dev) return dev;
     const ruled = this.rule.decide(view, legal);
-    if (ruled.type.startsWith('play') || ruled.type === 'proposeTrade') return ruled;
+    if (this.ruleDevCards && ruled.type.startsWith('play')) return ruled;
+    if (ruled.type === 'playMonopoly' || ruled.type === 'playRoadBuilding' || ruled.type === 'proposeTrade') return ruled;
 
     const points = legal.filter((a) => a.type === 'buildSettlement' || a.type === 'buildCity');
     if (this.forceBuild && points.length > 0) return this.pick(view, points) ?? ruled;
@@ -123,30 +140,85 @@ export class LearnedAgent implements Agent {
     return best;
   }
 
-  /** 盗賊: 置いた後の局面の価値 + 奪う相手（点数の高い相手、手札の多い相手）の分 */
+  /**
+   * 盗賊を置く手の価値 = 置いた後の局面の価値（止めた相手の生産が減る）
+   *                    + 奪う1枚の期待値（相手の生産から推定した手札の中身で、もらった後の局面の価値を平均）
+   * 一番脅威な相手を止めると評価関数の「一番脅威な相手」の特徴量が下がり、欲しい資源を持っていそうな相手ほど期待値が高くなる
+   */
+  robberScore(h: Hypothetical, hex: number, victim: number | null): number {
+    const moved: Hypothetical = { ...h, view: { ...h.view, robberHex: hex } };
+    const count = victim === null ? 0 : (h.view.opponents.find((o) => o.seat === victim)?.handCount ?? 0);
+    if (victim === null || count === 0) return this.value(moved);
+    const share = handShare(h.view, victim);
+    let ev = 0;
+    for (const r of RESOURCES) {
+      const hand = { ...moved.view.me.hand, [r]: moved.view.me.hand[r] + 1 };
+      ev += share[r] * this.value(withHand(moved, hand));
+    }
+    return ev;
+  }
+
+  /** 局面 h で盗賊を置ける手のうち、一番よいものとその価値 */
+  private bestRobber(h: Hypothetical): { hex: number; victim: number | null; score: number } {
+    const view = h.view;
+    const topology = topologyOf(view);
+    let best = { hex: -1, victim: null as number | null, score: -Infinity };
+    view.board.terrains.forEach((_, hex) => {
+      if (hex === view.robberHex) return;
+      const victims = new Set<number>();
+      for (const v of topology.hexVertices[hex]!) {
+        const b = view.buildings[v];
+        if (b && b.owner !== view.seat && (view.opponents.find((o) => o.seat === b.owner)?.handCount ?? 0) > 0) victims.add(b.owner);
+      }
+      for (const victim of victims.size ? [...victims] : [null]) {
+        const score = this.robberScore(h, hex, victim) + this.rng.next() * 1e-9;
+        if (score > best.score) best = { hex, victim, score };
+      }
+    });
+    return best;
+  }
+
   private moveRobber(view: PlayerView, legal: readonly Action[]): Action {
     const moves = of(legal, 'moveRobber');
     if (moves.length === 0) return this.rule.decide(view, legal);
     if (this.explore > 0 && this.rng.next() < this.explore) return moves[this.rng.int(moves.length)]!;
     const now = asIs(view);
-    const hand = (seat: number): number => view.opponents.find((o) => o.seat === seat)?.handCount ?? 0;
-    const byHex = new Map<number, number>();
     let best: Action | undefined;
     let bestScore = -Infinity;
     for (const a of moves) {
-      let v = byHex.get(a.hex);
-      if (v === undefined) {
-        v = this.value(afterAction(now, a)!);
-        byHex.set(a.hex, v);
-      }
-      const steal = a.victim === null || hand(a.victim) === 0 ? 0 : 0.004 + 0.002 * visiblePoints(view, a.victim) + 0.0005 * hand(a.victim);
-      const score = v + steal + this.rng.next() * 1e-9;
+      const score = this.robberScore(now, a.hex, a.victim) + this.rng.next() * 1e-9;
       if (score > bestScore) {
         best = a;
         bestScore = score;
       }
     }
     return best ?? this.rule.decide(view, legal);
+  }
+
+  /**
+   * 騎士を今使うか。使った後（騎士の枚数 +1、最大騎士力の取り直し、一番よい場所に盗賊）の価値と、
+   * 取っておく（今の局面）の価値を比べる
+   */
+  private knightNow(view: PlayerView, legal: readonly Action[]): Action | undefined {
+    const knight = of(legal, 'playKnight')[0];
+    if (!knight) return undefined;
+    const now = asIs(view);
+    const after = afterAction(now, knight);
+    if (!after) return undefined;
+    if (this.explore > 0 && this.rng.next() < this.explore) return this.rng.next() < 0.5 ? knight : undefined;
+    const play = myTotalPoints(after) >= view.config.victoryPointsToWin ? 2 : this.bestRobber(after).score;
+    return play > this.value(now) ? knight : undefined;
+  }
+
+  /** 収穫: 一番よい2枚を選び、使った後の価値が今より高ければ使う */
+  private plentyNow(view: PlayerView, legal: readonly Action[]): Action | undefined {
+    const options = of(legal, 'playYearOfPlenty');
+    if (options.length === 0) return undefined;
+    const now = asIs(view);
+    const best = this.pick(view, options);
+    if (!best) return undefined;
+    const after = afterAction(now, best);
+    return after && this.value(after) > this.value(now) ? best : undefined;
   }
 
   // -------------------------------------------------------------------------

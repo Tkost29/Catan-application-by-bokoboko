@@ -10,6 +10,7 @@ import {
   type VertexId,
 } from '@bokoboko/engine';
 import { isOpenSpot, missingCards, pips, productionBySeat, settlementValue, topologyOf } from '../evaluate.js';
+import { threatOf } from '../threat.js';
 
 /**
  * 学習AIの評価関数に渡す、局面の特徴量。
@@ -63,6 +64,18 @@ export const FEATURE_NAMES = [
   'oppMaxDev',
   'vpGap',
   'turn',
+  // 第2版で追加: 騎士と、一番脅威な相手（点数・生産・港・発展カードの脅威度が一番高い相手）
+  'knightsHeld',
+  'armyGap',
+  'leaderThreat',
+  'threatGap',
+  'leaderVp',
+  'leaderProd',
+  'leaderDev',
+  'leaderHand',
+  'leaderPortProd',
+  'leaderBlocked',
+  'oppBlocked',
 ] as const;
 
 export type FeatureName = (typeof FEATURE_NAMES)[number];
@@ -132,12 +145,12 @@ function buildingPoints(view: PlayerView, seat: Seat): number {
 }
 
 /** 自分が持つ港。generic: 3:1 があるか、special: 2:1 の資源 */
-function myPorts(view: PlayerView): { generic: boolean; special: Set<Resource> } {
+function myPorts(view: PlayerView, seat: Seat = view.seat): { generic: boolean; special: Set<Resource> } {
   const topology = topologyOf(view);
   const special = new Set<Resource>();
   let generic = false;
   for (const port of view.board.ports) {
-    if (!topology.edgeVertices[port.edge]!.some((v) => view.buildings[v]?.owner === view.seat)) continue;
+    if (!topology.edgeVertices[port.edge]!.some((v) => view.buildings[v]?.owner === seat)) continue;
     if (port.kind === 'generic') generic = true;
     else special.add(port.kind);
   }
@@ -189,6 +202,23 @@ function nearSpots(view: PlayerView): number {
 
 /** 特徴量を計算する（FEATURE_NAMES の順） */
 export function features(h: Hypothetical): number[] {
+  const f = featureRecord(h);
+  return FEATURE_NAMES.map((k) => f[k]);
+}
+
+/** 盗賊のヘックスで止められている、その席の生産（出やすさ。都市は2倍） */
+function blockedPips(view: PlayerView, seat: Seat): number {
+  const topology = topologyOf(view);
+  let out = 0;
+  for (const v of topology.hexVertices[view.robberHex]!) {
+    const b = view.buildings[v];
+    if (b?.owner === seat) out += pips(view.board.numbers[view.robberHex] ?? null) * (b.kind === 'city' ? 2 : 1);
+  }
+  return out;
+}
+
+/** 特徴量を名前つきで計算する */
+export function featureRecord(h: Hypothetical): Record<FeatureName, number> {
   const { view } = h;
   const me = view.me;
   const topology = topologyOf(view);
@@ -221,11 +251,19 @@ export function features(h: Hypothetical): number[] {
   const matchedPortProd = [...ports.special].reduce((s, r) => s + prod[r], 0);
 
   // 盗賊に止められている自分の生産
-  let robberOnMe = 0;
-  for (const v of topology.hexVertices[view.robberHex]!) {
-    const b = view.buildings[v];
-    if (b?.owner === view.seat) robberOnMe += pips(view.board.numbers[view.robberHex] ?? null) * (b.kind === 'city' ? 2 : 1);
-  }
+  const robberOnMe = blockedPips(view, view.seat);
+
+  // 騎士: 手元の騎士（買ったばかりのカードは割合で）と、使った騎士の差
+  const knightShare = (view.config.devCardCounts.knight ?? 0) / Math.max(1, Object.values(view.config.devCardCounts).reduce((a, b) => a + b, 0));
+  const knightsHeld = me.devCards.filter((c) => c.card === 'knight').length + h.unknownDev * knightShare;
+
+  // 一番脅威な相手（点数・生産・港・発展カード）
+  const threat = (s: Seat): number => threatOf(view, s);
+  let leader = view.opponents[0]?.seat ?? view.seat;
+  for (const o of view.opponents) if (threat(o.seat) > threat(leader)) leader = o.seat;
+  const leaderInfo = view.opponents.find((o) => o.seat === leader);
+  const leaderProd = productionBySeat(view, leader);
+  const leaderPorts = myPorts(view, leader);
 
   const opp = view.opponents.map((o) => {
     const p = productionBySeat(view, o.seat);
@@ -241,7 +279,7 @@ export function features(h: Hypothetical): number[] {
   const oppMaxVp = Math.max(0, ...opp.map((o) => o.vp));
   const myVp = visible(view.seat);
 
-  const f: Record<FeatureName, number> = {
+  return {
     vp: myVp,
     vpCards,
     prod_wood: prod.wood,
@@ -286,14 +324,28 @@ export function features(h: Hypothetical): number[] {
     oppMaxDev: Math.max(0, ...opp.map((o) => o.dev)),
     vpGap: myVp + vpCards - oppMaxVp,
     turn: view.turn / 100,
+    knightsHeld,
+    armyGap: me.playedKnights - Math.max(0, ...opp.map((o) => o.knights)),
+    leaderThreat: threat(leader),
+    threatGap: threat(leader) - threat(view.seat),
+    leaderVp: visible(leader),
+    leaderProd: RESOURCES.reduce((s, r) => s + leaderProd[r], 0),
+    leaderDev: leaderInfo?.devCardCount ?? 0,
+    leaderHand: leaderInfo?.handCount ?? 0,
+    leaderPortProd: [...leaderPorts.special].reduce((s, r) => s + leaderProd[r], 0),
+    leaderBlocked: blockedPips(view, leader),
+    oppBlocked: view.opponents.reduce((s, o) => s + blockedPips(view, o.seat), 0),
   };
-  return FEATURE_NAMES.map((k) => f[k]);
 }
 
 /** 自分の勝利点（伏せている勝利点カードも含む）。打った後の局面で勝ちが確定するかの判定用 */
 export function myTotalPoints(h: Hypothetical): number {
-  const f = features(h);
-  return f[FEATURE_NAMES.indexOf('vp')]! + f[FEATURE_NAMES.indexOf('vpCards')]!;
+  const view = h.view;
+  const vpCards = view.me.devCards.filter((c) => c.card === 'victoryPoint').length + h.unknownDev * vpCardShare(view);
+  const lengths = Array.from({ length: view.config.playerCount }, (_, s) => roadLength(view, s));
+  const lr = longestRoadHolder(view, lengths) === view.seat ? 2 : 0;
+  const la = view.largestArmy === view.seat ? 2 : 0;
+  return buildingPoints(view, view.seat) + lr + la + vpCards;
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +423,30 @@ export function afterAction(h: Hypothetical, action: Action, free = false): Hypo
     }
     case 'discard':
       return { ...h, view: withMe(view, { hand: pay(me.hand, action.resources) }) };
+    case 'playKnight': {
+      // 騎士を1枚使う（盗賊を動かす前の局面。最大騎士力は使った枚数で決め直す）
+      const i = me.devCards.findIndex((c) => c.card === 'knight' && c.boughtTurn < view.turn);
+      if (i < 0) return null;
+      const played = me.playedKnights + 1;
+      const best = Math.max(0, ...view.opponents.map((o) => o.playedKnights));
+      const holder = view.largestArmy;
+      const takes = played >= view.config.largestArmyMinKnights && (holder === view.seat || played > best);
+      return {
+        ...h,
+        view: withMe(
+          view,
+          { devCards: me.devCards.filter((_, j) => j !== i), playedKnights: played },
+          { largestArmy: takes ? view.seat : holder, devCardPlayedThisTurn: true },
+        ),
+      };
+    }
+    case 'playYearOfPlenty': {
+      const i = me.devCards.findIndex((c) => c.card === 'yearOfPlenty' && c.boughtTurn < view.turn);
+      if (i < 0) return null;
+      const [a, b] = action.resources;
+      const hand = pay(pay(me.hand, { [a]: 1 }, 1), { [b]: 1 }, 1);
+      return { ...h, view: withMe(view, { hand, devCards: me.devCards.filter((_, j) => j !== i) }, { devCardPlayedThisTurn: true }) };
+    }
     case 'moveRobber':
       return { ...h, view: { ...view, robberHex: action.hex } };
     default:

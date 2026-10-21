@@ -39,10 +39,25 @@ const shard = Number(opt('shard', '0'));
 const shards = Number(opt('shards', '1'));
 const modelPath = opt('model', '');
 const model: ValueModel | null = modelPath ? (JSON.parse(readFileSync(modelPath, 'utf8')) as ValueModel) : null;
+/**
+ * data で学習AIの席に使うモデルを複数から選ぶ（--models a.json,b.json）。昔の世代の弱いモデルも混ぜると、
+ * 「資源を貯め込む」のような悪い打ち方の結果もデータに入り、評価関数がそれを避けられるようになる
+ */
+const pool: ValueModel[] = opt('models', '')
+  .split(',')
+  .filter(Boolean)
+  .map((p) => JSON.parse(readFileSync(p, 'utf8')) as ValueModel);
+/** data で、学習AIの席の何割を「勝利点の建設を強制しない」設定にするか */
+const looseShare = Number(opt('loose', '0'));
 const MAX_STEPS = 60_000;
 /** 学習AIの切り替え（例: --flags noForceBuild,noTradeGate） */
 const flags = opt('flags', '').split(',').filter(Boolean);
-const learnedFlags = { forceBuild: !flags.includes('noForceBuild'), tradeGate: !flags.includes('noTradeGate') };
+const learnedFlags = {
+  forceBuild: !flags.includes('noForceBuild'),
+  tradeGate: !flags.includes('noTradeGate'),
+  ruleDevCards: !flags.includes('valueDevCards'),
+  eagerKnights: flags.includes('eagerKnights'),
+};
 
 function makeAgent(kind: string, seed: string, explore = 0): Agent {
   if (kind === 'learned') {
@@ -65,7 +80,7 @@ function play(state: GameState, agents: readonly Agent[], onTurnEnd?: (s: GameSt
 }
 
 if (command === 'data') {
-  const learnedShare = Number(opt('learned', model ? '0.5' : '0'));
+  const learnedShare = Number(opt('learned', model || pool.length ? '0.5' : '0'));
   const explore = Number(opt('explore', '0.05'));
   const sample = Number(opt('sample', '0.5'));
   writeFileSync(out, ['game', 'seat', 'agent', ...FEATURE_NAMES, 'win'].join(',') + '\n');
@@ -78,6 +93,12 @@ if (command === 'data') {
     // 席ごとに、学習AI か いろいろな方針のルールベースAI を選ぶ（局面に幅を持たせる）
     const kinds: string[] = [];
     const agents: Agent[] = [0, 1, 2, 3].map((s) => {
+      if (pool.length > 0 && rng.next() < learnedShare) {
+        const i = rng.int(pool.length);
+        const loose = rng.next() < looseShare;
+        kinds.push(`learned:${i}${loose ? ':loose' : ''}`);
+        return new LearnedAgent(`${seed}:${s}`, pool[i]!, { explore, forceBuild: !loose, tradeGate: !loose });
+      }
       if (model && rng.next() < learnedShare) {
         kinds.push('learned');
         return makeAgent('learned', `${seed}:${s}`, explore);
