@@ -7,6 +7,7 @@ import {
   RuleBasedAgent,
   type Agent,
   type ValueModel,
+  VALUE_MODEL,
 } from '@bokoboko/ai';
 import { apply, awaitingSeats, createGame, createRng, legalActions, toPlayerView, type GameState } from '@bokoboko/engine';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -61,8 +62,8 @@ const learnedFlags = {
 
 function makeAgent(kind: string, seed: string, explore = 0): Agent {
   if (kind === 'learned') {
-    if (!model) throw new Error('--model is required for learned agents');
-    return new LearnedAgent(seed, model, { explore, ...learnedFlags });
+    // --model がなければアプリに組み込んだ重み（難易度「つよい」と同じ）を使う
+    return new LearnedAgent(seed, model ?? VALUE_MODEL, { explore, ...learnedFlags });
   }
   if (kind === 'rule') return new RuleBasedAgent(seed);
   if (kind === 'improved') return new RuleBasedAgent(seed, resolveStrategy('standard_data_scarcity0.5', 'standard'));

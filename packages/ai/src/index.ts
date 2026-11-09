@@ -22,3 +22,4 @@ export { boardScarcity, handShare, leaderGap, threatOf, threats, usefulStealChan
 export { FEATURE_NAMES, afterAction, asIs, featureRecord, features, type FeatureName, type Hypothetical } from './learned/features.js';
 export { predict, type ValueModel } from './learned/model.js';
 export { LearnedAgent, type LearnedOptions } from './learned/agent.js';
+export { VALUE_MODEL } from './learned/weights.js';
